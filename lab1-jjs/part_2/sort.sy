@@ -1,0 +1,36 @@
+int n;
+int arr[100];
+
+void sort(int n) {
+    int i, j, tmp;
+    i = 0;
+    while (i < n - 1) {
+        j = 0;
+        while (j < n - 1 - i) {
+            if (arr[j] > arr[j + 1]) {
+                tmp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = tmp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+int main() {
+    int i, result;
+    n = getint();  // 读入数组大小
+    i = 0;
+    while (i < n) {
+        arr[i] = getint();  // 读入数组元素
+        i = i + 1;
+    }
+
+    sort(n);
+
+    result = arr[0] + arr[n - 1];  // 最小值 + 最大值
+    putint(result);
+    putch(10); // 输出换行
+    return 0;
+}
