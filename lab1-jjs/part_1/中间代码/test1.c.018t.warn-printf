@@ -1,0 +1,95 @@
+
+;; Function add (add, funcdef_no=0, decl_uid=2347, cgraph_uid=1, symbol_order=1)
+
+int add (int a, int b)
+{
+  int D.2359;
+
+  <bb 2> :
+  D.2359 = a + b;
+
+  <bb 3> :
+<L0>:
+  return D.2359;
+
+}
+
+
+
+;; Function main (main, funcdef_no=1, decl_uid=2349, cgraph_uid=2, symbol_order=2)
+
+test1.c:12: printf: objsize = 9223372036854775807, fmtstr = "SQUARE(%d) = %d
+"
+  Directive 1 at offset 0: "SQUARE(", length = 7
+    Result: 7, 7, 7, 7 (7, 7, 7, 7)
+  Directive 2 at offset 7: "%d"
+    Result: 1, 1, 11, 11 (8, 8, 18, 18)
+  Directive 3 at offset 9: ") = ", length = 4
+    Result: 4, 4, 4, 4 (12, 12, 22, 22)
+  Directive 4 at offset 13: "%d"
+    Result: 1, 1, 11, 11 (13, 13, 33, 33)
+  Directive 5 at offset 15: "
+", length = 1
+    Result: 1, 1, 1, 1 (14, 14, 34, 34)
+  Directive 6 at offset 16: "", length = 1
+test1.c:15: printf: objsize = 9223372036854775807, fmtstr = "Sum = %d
+"
+  Directive 1 at offset 0: "Sum = ", length = 6
+    Result: 6, 6, 6, 6 (6, 6, 6, 6)
+  Directive 2 at offset 6: "%d"
+    Result: 1, 1, 11, 11 (7, 7, 17, 17)
+  Directive 3 at offset 8: "
+", length = 1
+    Result: 1, 1, 1, 1 (8, 8, 18, 18)
+  Directive 4 at offset 9: "", length = 1
+test1.c:20: printf: objsize = 9223372036854775807, fmtstr = "Counter = %d
+"
+  Directive 1 at offset 0: "Counter = ", length = 10
+    Result: 10, 10, 10, 10 (10, 10, 10, 10)
+  Directive 2 at offset 10: "%d"
+    Result: 1, 1, 11, 11 (11, 11, 21, 21)
+  Directive 3 at offset 12: "
+", length = 1
+    Result: 1, 1, 1, 1 (12, 12, 22, 22)
+  Directive 4 at offset 13: "", length = 1
+int main ()
+{
+  int i;
+  int sum;
+  int a;
+  int D.2361;
+
+  <bb 2> :
+  __builtin_puts (&"Hello World"[0]);
+  a = 3;
+  _1 = a * a;
+  printf ("SQUARE(%d) = %d\n", a, _1);
+  sum = add (5, 7);
+  printf ("Sum = %d\n", sum);
+  i = 0;
+  goto <bb 4>; [INV]
+
+  <bb 3> :
+  counter.0_2 = counter;
+  _3 = i + counter.0_2;
+  counter = _3;
+  i = i + 1;
+
+  <bb 4> :
+  if (i <= 4)
+    goto <bb 3>; [INV]
+  else
+    goto <bb 5>; [INV]
+
+  <bb 5> :
+  counter.1_4 = counter;
+  printf ("Counter = %d\n", counter.1_4);
+  D.2361 = 0;
+
+  <bb 6> :
+<L3>:
+  return D.2361;
+
+}
+
+

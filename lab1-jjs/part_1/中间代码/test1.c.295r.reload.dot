@@ -1,0 +1,102 @@
+digraph "test1.c.295r.reload" {
+overlap=false;
+subgraph "cluster_add" {
+	style="dashed";
+	color="black";
+	label="add ()";
+	fn_0_basic_block_0 [shape=Mdiamond,style=filled,fillcolor=white,label="ENTRY"];
+
+	fn_0_basic_block_2 [shape=record,style=filled,fillcolor=lightgrey,label="{\ \ \ \ 5:\ NOTE_INSN_BASIC_BLOCK\ 2\l\
+|\ \ \ \ 2:\ [bp:DI-0x4]=di:SI\l\
+|\ \ \ \ 3:\ [bp:DI-0x8]=si:SI\l\
+|\ \ \ \ 4:\ NOTE_INSN_FUNCTION_BEG\l\
+|\ \ \ \ 7:\ dx:SI=[bp:DI-0x4]\l\
+|\ \ \ \ 8:\ ax:SI=[bp:DI-0x8]\l\
+|\ \ \ \ 9:\ \{ax:SI=ax:SI+dx:SI;clobber\ flags:CC;\}\l\
+\ \ \ \ \ \ REG_EQUAL\ [frame:DI-0x4]+[frame:DI-0x8]\l\
+|\ \ \ 17:\ use\ ax:SI\l\
+}"];
+
+	fn_0_basic_block_1 [shape=Mdiamond,style=filled,fillcolor=white,label="EXIT"];
+
+	fn_0_basic_block_0:s -> fn_0_basic_block_2:n [style="solid,bold",color=blue,weight=100,constraint=true];
+	fn_0_basic_block_2:s -> fn_0_basic_block_1:n [style="solid,bold",color=blue,weight=100,constraint=true,label="[100%]"];
+	fn_0_basic_block_0:s -> fn_0_basic_block_1:n [style="invis",constraint=true];
+}
+subgraph "cluster_main" {
+	style="dashed";
+	color="black";
+	label="main ()";
+	fn_1_basic_block_0 [shape=Mdiamond,style=filled,fillcolor=white,label="ENTRY"];
+
+	fn_1_basic_block_2 [shape=record,style=filled,fillcolor=lightgrey,label="{\ \ \ \ 3:\ NOTE_INSN_BASIC_BLOCK\ 2\l\
+|\ \ \ \ 2:\ NOTE_INSN_FUNCTION_BEG\l\
+|\ \ \ \ 5:\ ax:DI=`*.LC0'\l\
+|\ \ \ \ 6:\ di:DI=ax:DI\l\
+\ \ \ \ \ \ REG_EQUAL\ `*.LC0'\l\
+|\ \ \ \ 7:\ ax:SI=call\ [`puts']\ argc:0\l\
+|\ \ \ \ 8:\ [bp:DI-0x8]=0x3\l\
+|\ \ \ \ 9:\ ax:SI=[bp:DI-0x8]\l\
+|\ \ \ 10:\ \{ax:SI=ax:SI*ax:SI;clobber\ flags:CC;\}\l\
+|\ \ \ 66:\ dx:SI=ax:SI\l\
+|\ \ \ 11:\ ax:SI=[bp:DI-0x8]\l\
+|\ \ \ 13:\ si:SI=ax:SI\l\
+|\ \ \ 14:\ ax:DI=`*.LC1'\l\
+|\ \ \ 15:\ di:DI=ax:DI\l\
+\ \ \ \ \ \ REG_EQUAL\ `*.LC1'\l\
+|\ \ \ 16:\ ax:QI=0\l\
+|\ \ \ 17:\ ax:SI=call\ [`printf']\ argc:0\l\
+|\ \ \ 18:\ si:SI=0x7\l\
+|\ \ \ 19:\ di:SI=0x5\l\
+|\ \ \ 20:\ ax:SI=call\ [`add']\ argc:0\l\
+|\ \ \ 22:\ [bp:DI-0x4]=ax:SI\l\
+|\ \ \ 23:\ ax:SI=[bp:DI-0x4]\l\
+|\ \ \ 24:\ si:SI=ax:SI\l\
+|\ \ \ 25:\ ax:DI=`*.LC2'\l\
+|\ \ \ 26:\ di:DI=ax:DI\l\
+\ \ \ \ \ \ REG_EQUAL\ `*.LC2'\l\
+|\ \ \ 27:\ ax:QI=0\l\
+|\ \ \ 28:\ ax:SI=call\ [`printf']\ argc:0\l\
+|\ \ \ 29:\ [bp:DI-0xc]=0\l\
+|\ \ \ 62:\ pc=L38\l\
+}"];
+
+	fn_1_basic_block_4 [shape=record,style=filled,fillcolor=lightgrey,label="{\ \ \ 38:\ L38:\l\
+|\ \ \ 39:\ NOTE_INSN_BASIC_BLOCK\ 4\l\
+|\ \ \ 43:\ flags:CCGC=cmp([bp:DI-0xc],0x4)\l\
+|\ \ \ 44:\ pc=\{(flags:CCGC\<=0)?L40:pc\}\l\
+}"];
+
+	fn_1_basic_block_5 [shape=record,style=filled,fillcolor=lightgrey,label="{\ \ \ 45:\ NOTE_INSN_BASIC_BLOCK\ 5\l\
+|\ \ \ 46:\ ax:SI=[`counter']\l\
+|\ \ \ 47:\ si:SI=ax:SI\l\
+|\ \ \ 48:\ ax:DI=`*.LC3'\l\
+|\ \ \ 49:\ di:DI=ax:DI\l\
+\ \ \ \ \ \ REG_EQUAL\ `*.LC3'\l\
+|\ \ \ 50:\ ax:QI=0\l\
+|\ \ \ 51:\ ax:SI=call\ [`printf']\ argc:0\l\
+|\ \ \ 52:\ ax:SI=0\l\
+|\ \ \ 60:\ use\ ax:SI\l\
+}"];
+
+	fn_1_basic_block_3 [shape=record,style=filled,fillcolor=lightgrey,label="{\ \ \ 40:\ L40:\l\
+|\ \ \ 32:\ NOTE_INSN_BASIC_BLOCK\ 3\l\
+|\ \ \ 33:\ dx:SI=[`counter']\l\
+|\ \ \ 34:\ ax:SI=[bp:DI-0xc]\l\
+|\ \ \ 35:\ \{ax:SI=ax:SI+dx:SI;clobber\ flags:CC;\}\l\
+\ \ \ \ \ \ REG_EQUAL\ dx:SI+[frame:DI-0xc]\l\
+|\ \ \ 36:\ [`counter']=ax:SI\l\
+|\ \ \ 37:\ \{[bp:DI-0xc]=[bp:DI-0xc]+0x1;clobber\ flags:CC;\}\l\
+}"];
+
+	fn_1_basic_block_1 [shape=Mdiamond,style=filled,fillcolor=white,label="EXIT"];
+
+	fn_1_basic_block_0:s -> fn_1_basic_block_2:n [style="solid,bold",color=blue,weight=100,constraint=true];
+	fn_1_basic_block_2:s -> fn_1_basic_block_4:n [style="solid,bold",color=black,weight=10,constraint=true,label="[100%]"];
+	fn_1_basic_block_3:s -> fn_1_basic_block_4:n [style="dotted,bold",color=blue,weight=10,constraint=false];
+	fn_1_basic_block_4:s -> fn_1_basic_block_3:n [style="solid,bold",color=black,weight=10,constraint=true];
+	fn_1_basic_block_4:s -> fn_1_basic_block_5:n [style="solid,bold",color=blue,weight=100,constraint=true];
+	fn_1_basic_block_5:s -> fn_1_basic_block_1:n [style="solid,bold",color=blue,weight=100,constraint=true,label="[100%]"];
+	fn_1_basic_block_0:s -> fn_1_basic_block_1:n [style="invis",constraint=true];
+}
+}

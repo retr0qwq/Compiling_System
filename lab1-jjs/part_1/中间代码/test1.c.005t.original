@@ -1,0 +1,40 @@
+
+;; Function add (null)
+;; enabled by -tree-original
+
+
+{
+  return a + b;
+}
+
+
+;; Function main (null)
+;; enabled by -tree-original
+
+
+{
+  int a = 3;
+  int sum = add (5, 7);
+
+  printf ((const char * restrict) "Hello World\n");
+    int a = 3;
+  printf ((const char * restrict) "SQUARE(%d) = %d\n", a, a * a);
+    int sum = add (5, 7);
+  printf ((const char * restrict) "Sum = %d\n", sum);
+  {
+    int i = 0;
+
+        int i = 0;
+    goto <D.2357>;
+    <D.2356>:;
+    counter = counter + i;
+    i++ ;
+    <D.2357>:;
+    if (i <= 4) goto <D.2356>; else goto <D.2354>;
+    <D.2354>:;
+  }
+  printf ((const char * restrict) "Counter = %d\n", counter);
+  return 0;
+}
+return 0;
+

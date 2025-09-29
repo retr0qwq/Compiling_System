@@ -1,0 +1,47 @@
+int add (int a, int b)
+{
+  int D.2359;
+
+  D.2359 = a + b;
+  return D.2359;
+}
+
+
+int main ()
+{
+  int D.2361;
+
+  {
+    int a;
+    int sum;
+
+    printf ("Hello World\n");
+    a = 3;
+    _1 = a * a;
+    printf ("SQUARE(%d) = %d\n", a, _1);
+    sum = add (5, 7);
+    printf ("Sum = %d\n", sum);
+    {
+      int i;
+
+      i = 0;
+      goto <D.2357>;
+      <D.2356>:
+      counter.0_2 = counter;
+      _3 = i + counter.0_2;
+      counter = _3;
+      i = i + 1;
+      <D.2357>:
+      if (i <= 4) goto <D.2356>; else goto <D.2354>;
+      <D.2354>:
+    }
+    counter.1_4 = counter;
+    printf ("Counter = %d\n", counter.1_4);
+    D.2361 = 0;
+    return D.2361;
+  }
+  D.2361 = 0;
+  return D.2361;
+}
+
+

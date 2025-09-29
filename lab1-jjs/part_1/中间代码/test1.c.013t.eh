@@ -1,0 +1,51 @@
+
+;; Function add (add, funcdef_no=0, decl_uid=2347, cgraph_uid=1, symbol_order=1)
+
+int add (int a, int b)
+{
+  int D.2359;
+
+  D.2359 = a + b;
+  goto <D.2360>;
+  <D.2360>:
+  return D.2359;
+}
+
+
+
+;; Function main (main, funcdef_no=1, decl_uid=2349, cgraph_uid=2, symbol_order=2)
+
+int main ()
+{
+  int i;
+  int sum;
+  int a;
+  int D.2361;
+
+  __builtin_puts (&"Hello World"[0]);
+  a = 3;
+  _1 = a * a;
+  printf ("SQUARE(%d) = %d\n", a, _1);
+  sum = add (5, 7);
+  printf ("Sum = %d\n", sum);
+  i = 0;
+  goto <D.2357>;
+  <D.2356>:
+  counter.0_2 = counter;
+  _3 = i + counter.0_2;
+  counter = _3;
+  i = i + 1;
+  <D.2357>:
+  if (i <= 4) goto <D.2356>; else goto <D.2354>;
+  <D.2354>:
+  counter.1_4 = counter;
+  printf ("Counter = %d\n", counter.1_4);
+  D.2361 = 0;
+  goto <D.2362>;
+  D.2361 = 0;
+  goto <D.2362>;
+  <D.2362>:
+  return D.2361;
+}
+
+
