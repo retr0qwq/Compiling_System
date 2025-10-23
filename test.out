@@ -1,4 +1,4 @@
-....Token                         Lexeme                        Property                      Line    Column  
+Token                         Lexeme                        Property                      Line    Column  
 FLOAT                         float                                                       1       0       
 IDENT                         testDecimalFloats             testDecimalFloats             1       6       
 LPAREN                        (                                                           1       23      
@@ -22,12 +22,12 @@ SEMICOLON                     ;                                                 
 FLOAT                         float                                                       6       4       
 IDENT                         d                             d                             6       10      
 ASSIGN                        =                                                           6       12      
-INT_CONST                     5                             5                             6       15      
+FLOAT_CONST                   .5                            0.5                           6       14      
 SEMICOLON                     ;                                                           6       16      
 FLOAT                         float                                                       7       4       
 IDENT                         e                             e                             7       10      
 ASSIGN                        =                                                           7       12      
-INT_CONST                     5                             5                             7       14      
+FLOAT_CONST                   5.                            5                             7       14      
 SEMICOLON                     ;                                                           7       16      
 FLOAT                         float                                                       9       4       
 IDENT                         f                             f                             9       10      
@@ -47,15 +47,12 @@ SEMICOLON                     ;                                                 
 FLOAT                         float                                                       12      4       
 IDENT                         i                             i                             12      10      
 ASSIGN                        =                                                           12      12      
-FLOAT_CONST                   5E+5                          500000                        12      15      
+FLOAT_CONST                   .5E+5                         50000                         12      14      
 SEMICOLON                     ;                                                           12      19      
 FLOAT                         float                                                       13      4       
 IDENT                         j                             j                             13      10      
 ASSIGN                        =                                                           13      12      
-INT_CONST                     3                             3                             13      14      
-IDENT                         e                             e                             13      16      
-MINUS                         -                                                           13      17      
-INT_CONST                     10                            10                            13      18      
+FLOAT_CONST                   3.e-10                        3e-10                         13      14      
 SEMICOLON                     ;                                                           13      20      
 RETURN                        return                                                      15      4       
 IDENT                         a                             a                             15      11      
