@@ -64,7 +64,7 @@
 %token <int> INT_CONST
 %token <long long> LL_CONST
 %token <std::string> STR_CONST ERR_TOKEN SLASH_COMMENT
-
+%token <float> FLOAT_CONST
 %token <std::string> IDENT 
 
 %token IF ELSE FOR WHILE CONTINUE BREAK SWITCH CASE GOTO DO RETURN CONST

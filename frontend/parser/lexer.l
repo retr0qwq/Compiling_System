@@ -102,24 +102,26 @@ TODO(Lab1)：参考SysY2022的定义，实现更多的词法，如浮点数、�
 0[xX][0-9a-fA-F]+ {
     try {
         bool isLL = false;
-        long long val = convertToInt(yytext, '\0', isLL);
-        if (isLL) return YaccParser::make_LL_CONST(val, loc);
-        return YaccParser::make_INT_CONST(static_cast<int>(val), loc);
+        long long result = convertToInt(yytext, '\0', isLL);
+        if (isLL) return YaccParser::make_LL_CONST(result, loc);
+        return YaccParser::make_INT_CONST(static_cast<int>(result), loc);
     } catch (const std::exception& e) {
-        _parser.reportError(loc, std::string("Error parsing integer: ") + e.what());
-        return YaccParser::make_ERR_TOKEN(std::string(yytext), loc);
+        _parser.reportError(loc, std::string("Error parsing hexadecimal int: ") + e.what());
+        auto str = std::string(yytext);
+        return YaccParser::make_ERR_TOKEN(str, loc);
     }
 }
 
 0[0-7]* {
     try {
         bool isLL = false;
-        long long val = convertToInt(yytext, '\0', isLL);
-        if (isLL) return YaccParser::make_LL_CONST(val, loc);
-        return YaccParser::make_INT_CONST(static_cast<int>(val), loc);
+        long long result = convertToInt(yytext, '\0', isLL);
+        if (isLL) return YaccParser::make_LL_CONST(result, loc);
+        return YaccParser::make_INT_CONST(static_cast<int>(result), loc);
     } catch (const std::exception& e) {
-        _parser.reportError(loc, std::string("Error parsing integer: ") + e.what());
-        return YaccParser::make_ERR_TOKEN(std::string(yytext), loc);
+        _parser.reportError(loc, std::string("Error parsing octal int: ") + e.what());
+        auto str = std::string(yytext);
+        return YaccParser::make_ERR_TOKEN(str, loc);
     }
 }
 
@@ -130,7 +132,29 @@ TODO(Lab1)：参考SysY2022的定义，实现更多的词法，如浮点数、�
         if (isLL) return YaccParser::make_LL_CONST(result, loc);
         return YaccParser::make_INT_CONST(static_cast<int>(result), loc);
     } catch (const std::exception& e) {
-        _parser.reportError(loc, std::string("Error parsing hexadecimal int: ") + e.what());
+        _parser.reportError(loc, std::string("Error parsing int: ") + e.what());
+        auto str = std::string(yytext);
+        return YaccParser::make_ERR_TOKEN(str, loc);
+    }
+}
+
+[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)? {
+    try {
+        float value = convertToFloatDec(yytext);
+        return YaccParser::make_FLOAT_CONST(value, loc);
+    } catch (const std::exception& e) {
+        _parser.reportError(loc, std::string("Error parsing float: ") + e.what());
+        auto str = std::string(yytext);
+        return YaccParser::make_ERR_TOKEN(str, loc);
+    }
+}
+
+0[xX]([0-9a-fA-F]+(\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][-+]?[0-9]+ {
+    try {
+        float value = convertToFloatHex(yytext);
+        return YaccParser::make_FLOAT_CONST(value, loc);
+    } catch (const std::exception& e) {
+        _parser.reportError(loc, std::string("Error parsing hexadecimal float: ") + e.what());
         auto str = std::string(yytext);
         return YaccParser::make_ERR_TOKEN(str, loc);
     }
