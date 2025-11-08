@@ -46,4 +46,9 @@ int main()
 
     if (result1 > result2) return 1;
     else return 0;
+    // */ // comment, not syntax error
+    f = g/**//h; // equivalent to f = g / h;3 /*//*/ l(); // equivalent to l();
+    m = n//**/o
+    + p; // equivalent to m = n + p;
+    /* comment */ a = b + c * d / e // equivalent to a = b + c * d / e
 }

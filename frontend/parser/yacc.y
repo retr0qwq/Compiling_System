@@ -183,6 +183,10 @@ STMT:
         $$ = nullptr;
     }
     //TODO(Lab2)：考虑更多语句类型
+    | BLOCK_STMT { $$ = $1; }
+    | RETURN_STMT { $$ = $1; }
+    | WHILE_STMT { $$ = $1; }
+    | BREAK_STMT { $$ = $1; }
     ;
 
 CONTINUE_STMT:
@@ -208,6 +212,10 @@ VAR_DECLARATION:
 
 VAR_DECL_STMT:
     /* TODO(Lab2): Implement variable declaration statement rule */
+    VAR_DECLARATION SEMICOLON{
+        $$ = new VarDeclStmt($1, @1.begin.line, @1.begin.column);
+
+    }
     ;
 
 FUNC_BODY:
@@ -272,11 +280,27 @@ PARAM_DECLARATOR_LIST:
     /* empty */ {
         $$ = new std::vector<ParamDeclarator*>();
     }
+    | PARAM_DECLARATOR {
+        $$ = new std::vector<FE::AST::ParamDeclarator*>();
+        $$->push_back($1);
+    }
+    | PARAM_DECLARATOR_LIST COMMA PARAM_DECLARATOR {
+        $$ = $1;
+        $$->push_back($3);
+    }
     //TODO(Lab2)：考虑函数形参列表的构成情况
     ;
 
 VAR_DECLARATOR:
     //TODO(Lab2)：完成变量声明符的处理
+    IDENT {
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry), nullptr, @1.begin.line, @1.begin.column);
+    }
+    | IDENT ASSIGN INITIALIZER{
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry), $3, @1.begin.line, @1.begin.column);
+    }
     ;
 
 VAR_DECLARATOR_LIST:
@@ -292,6 +316,14 @@ VAR_DECLARATOR_LIST:
 
 INITIALIZER:
     /* TODO(Lab2): Implement variable initializer rule */
+    EXPR {
+        // 单个初始化
+        $$ = new FE::AST::Initializer($1, @1.begin.line, @1.begin.column);
+    }
+    | LBRACE INITIALIZER_LIST RBRACE {
+        // 初始化列表
+        $$ = new FE::AST::InitializerList($2, @1.begin.line, @1.begin.column);
+    }
     ;
 
 INITIALIZER_LIST:
