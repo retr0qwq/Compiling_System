@@ -321,6 +321,16 @@ PARAM_DECLARATOR:
         $$ = new ParamDeclarator($1, entry, dim, @1.begin.line, @1.begin.column);
     }
     //TODO(Lab2)：考虑函数形参更多情况
+    | TYPE IDENT LBRACKET RBRACKET ARRAY_DIMENSION_EXPR_LIST {
+        std::vector<ExprNode*>* dim = $5;
+        dim->insert(dim->begin(), new LiteralExpr(-1, @3.begin.line, @3.begin.column)); // 首维省略
+        Entry* entry = Entry::getEntry($2);
+        $$ = new ParamDeclarator($1, entry, dim, @1.begin.line, @1.begin.column);
+    }
+    | TYPE IDENT ARRAY_DIMENSION_EXPR_LIST {
+        Entry* entry = Entry::getEntry($2);
+        $$ = new ParamDeclarator($1, entry, $3, @1.begin.line, @1.begin.column);
+    }
     ;
 
 PARAM_DECLARATOR_LIST:
@@ -348,6 +358,38 @@ VAR_DECLARATOR:
         Entry* entry = Entry::getEntry($1);
         $$ = new VarDeclarator(new LeftValExpr(entry), $3, @1.begin.line, @1.begin.column);
     }
+    | IDENT LBRACKET RBRACKET {
+        std::vector<ExprNode*>* dims = new std::vector<ExprNode*>();
+        dims->emplace_back(new LiteralExpr(-1, @2.begin.line, @2.begin.column));
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, dims), nullptr, @1.begin.line, @1.begin.column);
+    }
+    | IDENT LBRACKET RBRACKET ARRAY_DIMENSION_EXPR_LIST {
+        std::vector<ExprNode*>* dims = $4;
+        dims->insert(dims->begin(), new LiteralExpr(-1, @2.begin.line, @2.begin.column));
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, dims), nullptr, @1.begin.line, @1.begin.column);
+    }
+    | IDENT LBRACKET RBRACKET ASSIGN INITIALIZER {
+        std::vector<ExprNode*>* dims = new std::vector<ExprNode*>();
+        dims->emplace_back(new LiteralExpr(-1, @2.begin.line, @2.begin.column));
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, dims), $5, @1.begin.line, @1.begin.column);
+    }
+    | IDENT LBRACKET RBRACKET ARRAY_DIMENSION_EXPR_LIST ASSIGN INITIALIZER {
+        std::vector<ExprNode*>* dims = $4;
+        dims->insert(dims->begin(), new LiteralExpr(-1, @2.begin.line, @2.begin.column));
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, dims), $6, @1.begin.line, @1.begin.column);
+    }
+    | IDENT ARRAY_DIMENSION_EXPR_LIST {
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, $2), nullptr, @1.begin.line, @1.begin.column);
+    }
+    | IDENT ARRAY_DIMENSION_EXPR_LIST ASSIGN INITIALIZER {
+        Entry* entry = Entry::getEntry($1);
+        $$ = new VarDeclarator(new LeftValExpr(entry, $2), $4, @1.begin.line, @1.begin.column);
+    }
     ;
 
 VAR_DECLARATOR_LIST:
@@ -363,7 +405,7 @@ VAR_DECLARATOR_LIST:
 
 INITIALIZER:
     /* TODO(Lab2): Implement variable initializer rule */
-    EXPR {
+    NOCOMMA_EXPR {
         // 单个初始化
         $$ = new FE::AST::Initializer($1, @1.begin.line, @1.begin.column);
     }
@@ -552,6 +594,15 @@ ARRAY_DIMENSION_EXPR:
 
 ARRAY_DIMENSION_EXPR_LIST:
     /* TODO(Lab2): Implement variable dimension rule */
+    ARRAY_DIMENSION_EXPR {
+        $$ = new std::vector<FE::AST::ExprNode*>();
+        $$->push_back($1);
+    }
+    | ARRAY_DIMENSION_EXPR_LIST ARRAY_DIMENSION_EXPR {
+        $$ = $1;
+        $$->push_back($2);
+    }
+    ;
     ;
 
 LEFT_VAL_EXPR:
