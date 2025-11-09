@@ -257,6 +257,16 @@ FOR_STMT:
 
 IF_STMT:
     /* TODO(Lab2): Implement if statement rule */
+    IF LPAREN EXPR RPAREN STMT %prec THEN
+    {
+        $$ = new IfStmt($3, $5, nullptr, @1.begin.line, @1.begin.column);
+    }
+    | IF LPAREN EXPR RPAREN STMT ELSE STMT
+    {
+        $$ = new IfStmt($3, $5, $7, @1.begin.line, @1.begin.column);
+    }
+    ;
+
     ;
 
 //TODO(Lab2)：按照你补充的语句类型，实现这些语句的处理
