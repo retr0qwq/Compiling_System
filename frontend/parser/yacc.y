@@ -66,7 +66,7 @@
 %token <std::string> STR_CONST ERR_TOKEN SLASH_COMMENT
 %token <float> FLOAT_CONST
 %token <std::string> IDENT 
-%token INT FLOAT
+%token INT FLOAT VOID
 %token IF ELSE FOR WHILE CONTINUE BREAK SWITCH CASE GOTO DO RETURN CONST
 %token SEMICOLON COMMA LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE
 %token PLUS MINUS MUL DIV MOD
@@ -633,6 +633,7 @@ TYPE:
     // TODO(Lab2): 完成类型的处理
     INT { $$ = intType; }
     | FLOAT { $$ = floatType; }
+    | VOID { $$ = voidType; }
     ;
 
 UNARY_OP:
