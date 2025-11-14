@@ -333,10 +333,10 @@ PARAM_DECLARATOR:
     }
     ;
 
-PARAM_DECLARATOR_LIST:
-    /* empty */ {
-        $$ = new std::vector<ParamDeclarator*>();
-    }
+    PARAM_DECLARATOR_LIST:
+        /* empty */ {
+            $$ = new std::vector<ParamDeclarator*>();
+        }
     | PARAM_DECLARATOR {
         $$ = new std::vector<FE::AST::ParamDeclarator*>();
         $$->push_back($1);
@@ -357,30 +357,6 @@ VAR_DECLARATOR:
     | IDENT ASSIGN INITIALIZER{
         Entry* entry = Entry::getEntry($1);
         $$ = new VarDeclarator(new LeftValExpr(entry), $3, @1.begin.line, @1.begin.column);
-    }
-    | IDENT LBRACKET RBRACKET {
-        std::vector<ExprNode*>* dims = new std::vector<ExprNode*>();
-        dims->emplace_back(new LiteralExpr(-1, @2.begin.line, @2.begin.column));
-        Entry* entry = Entry::getEntry($1);
-        $$ = new VarDeclarator(new LeftValExpr(entry, dims), nullptr, @1.begin.line, @1.begin.column);
-    }
-    | IDENT LBRACKET RBRACKET ARRAY_DIMENSION_EXPR_LIST {
-        std::vector<ExprNode*>* dims = $4;
-        dims->insert(dims->begin(), new LiteralExpr(-1, @2.begin.line, @2.begin.column));
-        Entry* entry = Entry::getEntry($1);
-        $$ = new VarDeclarator(new LeftValExpr(entry, dims), nullptr, @1.begin.line, @1.begin.column);
-    }
-    | IDENT LBRACKET RBRACKET ASSIGN INITIALIZER {
-        std::vector<ExprNode*>* dims = new std::vector<ExprNode*>();
-        dims->emplace_back(new LiteralExpr(-1, @2.begin.line, @2.begin.column));
-        Entry* entry = Entry::getEntry($1);
-        $$ = new VarDeclarator(new LeftValExpr(entry, dims), $5, @1.begin.line, @1.begin.column);
-    }
-    | IDENT LBRACKET RBRACKET ARRAY_DIMENSION_EXPR_LIST ASSIGN INITIALIZER {
-        std::vector<ExprNode*>* dims = $4;
-        dims->insert(dims->begin(), new LiteralExpr(-1, @2.begin.line, @2.begin.column));
-        Entry* entry = Entry::getEntry($1);
-        $$ = new VarDeclarator(new LeftValExpr(entry, dims), $6, @1.begin.line, @1.begin.column);
     }
     | IDENT ARRAY_DIMENSION_EXPR_LIST {
         Entry* entry = Entry::getEntry($1);
