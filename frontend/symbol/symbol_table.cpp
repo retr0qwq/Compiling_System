@@ -3,7 +3,11 @@
 
 namespace FE::Sym
 {
-    void SymTable::reset_impl() { TODO("Lab3-1: Reset symbol table"); }
+    void SymTable::reset_impl() { 
+        //TODO("Lab3-1: Reset symbol table"); 
+        scopestack.clear();
+        scopeDepth = 0;
+    }
 
     void SymTable::enterScope_impl() { TODO("Lab3-1: Enter new scope"); }
 

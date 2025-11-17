@@ -3,13 +3,19 @@
 
 #include <frontend/symbol/isymbol_table.h>
 #include <map>
-
+#include <unordered_map>
+#include <vector>
+using namespace std;
 namespace FE::Sym
 {
     class SymTable : public iSymTable<SymTable>
     {
         friend iSymTable<SymTable>;
+        private:
+        int scopeDepth = 0;
+        vector<unordered_map<string, Entry*>> scopestack;
 
+        public:
         void reset_impl();
 
         void              addSymbol_impl(Entry* entry, FE::AST::VarAttr& attr);
