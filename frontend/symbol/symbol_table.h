@@ -12,7 +12,7 @@ namespace FE::Sym
     {
         friend iSymTable<SymTable>;
         private:
-        int scopeDepth = 0;
+        int scopeDepth = -1;
         vector<unordered_map<string, Entry*>> scopestack;
 
         public:

@@ -1,14 +1,27 @@
 #include <frontend/ast/visitor/sementic_check/ast_checker.h>
 #include <debug.h>
-
+#include <vector>
 namespace FE::AST
 {
     bool ASTChecker::visit(Root& node)
     {
         // TODO(Lab3-1): 实现根节点的语义检查
         // 重置符号表，遍历所有顶层语句进行检查，确保存在main函数
-        (void)node;
-        TODO("Lab3-1: Implement Root node semantic checking");
+        //TODO("Lab3-1: Implement Root node semantic checking");
+        symTable.reset();
+
+        bool res = true;
+        for (auto* stmt : *(node.getStmts()))
+        {
+            ASSERT(stmt && "Null stmt in Root");
+            res = apply(*this, *stmt) && res;
+        }
+        if (!mainExists)
+        {
+            errors.emplace_back("Error: main function not found.");
+            res = false;
+        }
+        return res;
     }
 
     void ASTChecker::libFuncRegister()

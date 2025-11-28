@@ -6,7 +6,7 @@ namespace FE::Sym
     void SymTable::reset_impl() { 
         //TODO("Lab3-1: Reset symbol table"); 
         scopestack.clear();
-        scopeDepth = 0;
+        scopeDepth = -1;
     }
 
     void SymTable::enterScope_impl() { 
@@ -17,7 +17,7 @@ namespace FE::Sym
 
     void SymTable::exitScope_impl() { 
         //TODO("Lab3-1: Exit current scope");
-        if (scopeDepth > 0) {
+        if (scopeDepth > -1) {
             scopestack.pop_back();
             scopeDepth--;
         }
@@ -51,7 +51,7 @@ namespace FE::Sym
 
     bool SymTable::isGlobalScope_impl() { 
         //TODO("Lab3-1: Check if current scope is global scope"); 
-        return scopeDepth == 0;}
+        return scopeDepth == -1;}
 
     int SymTable::getScopeDepth_impl() { 
         //TODO("Lab3-1: Get current scope depth"); 
