@@ -13,12 +13,12 @@ namespace FE::Sym
         friend iSymTable<SymTable>;
         private:
         int scopeDepth = -1;
-        vector<unordered_map<string, Entry*>> scopestack;
+        vector<unordered_map<Entry*,FE::AST::VarAttr*>> scopestack;
 
         public:
         void reset_impl();
 
-        void              addSymbol_impl(Entry* entry, FE::AST::VarAttr& attr);
+        void              addSymbol_impl(Entry* entry, FE::AST::VarAttr* attr);
         FE::AST::VarAttr* getSymbol_impl(Entry* entry);
         void              enterScope_impl();
         void              exitScope_impl();

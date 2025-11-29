@@ -11,7 +11,7 @@ namespace FE::Sym
 
     void SymTable::enterScope_impl() { 
         //TODO("Lab3-1: Enter new scope");
-        scopestack.push_back(unordered_map<string, Entry*>());
+        scopestack.push_back(unordered_map<Entry*,FE::AST::VarAttr*>());
         scopeDepth++;
      }
 
@@ -23,27 +23,23 @@ namespace FE::Sym
         }
     }
 
-    void SymTable::addSymbol_impl(Entry* entry, FE::AST::VarAttr& attr)
+    void SymTable::addSymbol_impl(Entry* entry, FE::AST::VarAttr* attr)
     {
         //TODO("Lab3-1: Add symbol to current scope");
         auto& currentScope = scopestack.back();
-        if(currentScope.find(entry->getName()) != currentScope.end()) {
-            throw std::runtime_error("Symbol" + entry->getName() + "already exists in the current scope: ");
+        if(currentScope.find(entry) != currentScope.end()) {
+            throw runtime_error("Symbol" + entry->getName() + "already exists in the current scope: ");
         }
-        currentScope[entry->getName()] = entry;
-        entry->setVarAttr(new FE::AST::VarAttr(attr));
+        currentScope[entry] = attr;
     }
 
     FE::AST::VarAttr* SymTable::getSymbol_impl(Entry* entry)
     {
         //TODO("Lab3-1: Get symbol from symbol table");
-        const std::string& name = entry->getName();
         for (auto it = scopestack.rbegin(); it != scopestack.rend(); ++it) {
-        auto& currentScope = *it;
-
-        auto found = currentScope.find(name);
-        if (found != currentScope.end()) {
-            return found->second->getVarAttr();
+        auto search = it->find(entry);
+        if (search != it->end()) {
+                    return search->second;
         }
     }
     return nullptr;
@@ -51,7 +47,7 @@ namespace FE::Sym
 
     bool SymTable::isGlobalScope_impl() { 
         //TODO("Lab3-1: Check if current scope is global scope"); 
-        return scopeDepth == -1;}
+        return scopeDepth == 0;}
 
     int SymTable::getScopeDepth_impl() { 
         //TODO("Lab3-1: Get current scope depth"); 

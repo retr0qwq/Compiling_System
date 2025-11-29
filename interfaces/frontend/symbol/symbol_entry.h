@@ -12,7 +12,7 @@ namespace FE::Sym
 
       private:
         static std::unordered_map<std::string, Entry*> entryMap; 
-        static void                                    clear();
+        static void                                    clear(); 
 
       public:
         static Entry* getEntry(std::string name);
@@ -21,11 +21,8 @@ namespace FE::Sym
         Entry(std::string name = "NULL");
         ~Entry() = default;
         std::string name;
-        FE::AST::VarAttr* varAttr = nullptr;
       public:
         const std::string& getName();
-        void               setVarAttr(FE::AST::VarAttr* attr) { varAttr = attr; }
-        FE::AST::VarAttr*  getVarAttr() { return varAttr; }
     };
 
     class EntryDeleter
