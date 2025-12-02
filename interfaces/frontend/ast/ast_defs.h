@@ -248,7 +248,6 @@ namespace FE::AST
     {
         Operator  op;
         ExprValue val;
-
         NodeAttr(Operator o = Operator::UNK, const ExprValue& v = ExprValue()) : op(o), val(v) {}
     };
 }  // namespace FE::AST

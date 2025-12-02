@@ -20,6 +20,7 @@ namespace FE::Sym
 
         void              addSymbol_impl(Entry* entry, FE::AST::VarAttr* attr);
         FE::AST::VarAttr* getSymbol_impl(Entry* entry);
+        FE::AST::VarAttr* getlocalSymbol_impl(Entry* entry);
         void              enterScope_impl();
         void              exitScope_impl();
 

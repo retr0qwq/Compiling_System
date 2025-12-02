@@ -23,63 +23,161 @@ namespace FE::AST
     {
         // TODO(Lab3-1): 实现变量声明语句的语义检查
         // 空声明直接通过，否则委托给变量声明处理
-        (void)node;
-        TODO("Lab3-1: Implement VarDeclStmt semantic checking");
+        //TODO("Lab3-1: Implement VarDeclStmt semantic checking");
+        if (!node.decl) return true;
+        return apply(*this, *(node.decl));
     }
 
     bool ASTChecker::visit(BlockStmt& node)
     {
         // TODO(Lab3-1): 实现块语句的语义检查
         // 进入新作用域，逐条访问语句，退出作用域
-        (void)node;
-        TODO("Lab3-1: Implement BlockStmt semantic checking");
+        //TODO("Lab3-1: Implement BlockStmt semantic checking");
+        symTable.enterScope_impl();
+        bool res = true;
+        for (auto* stmt : *(node.stmts)) {
+            ASSERT(stmt && "Null stmt in BlockStmt");
+            res &= apply(*this, *stmt) && res;
+        }
+        symTable.exitScope_impl();
+        return res;
     }
 
     bool ASTChecker::visit(ReturnStmt& node)
     {
         // TODO(Lab3-1): 实现返回语句的语义检查
         // 设置返回标记，检查作用域，检查返回值类型匹配
-        (void)node;
-        TODO("Lab3-1: Implement ReturnStmt semantic checking");
+        //TODO("Lab3-1: Implement ReturnStmt semantic checking");
+        funcHasReturn = true;
+        bool res = true;
+        if (node.retExpr) {
+            res &= apply(*this, *(node.retExpr));
+            Type* retType = node.retExpr->attr.val.value.type;
+            if (!retType) {
+                errors.emplace_back("Error: Return expression has no type.");
+                return false;
+            }
+            if (retType->getBaseType() != curFuncRetType->getBaseType()) {
+                errors.emplace_back("Error: Return type mismatch.");
+                return false;
+            }
+        }
+        else{
+            if (curFuncRetType->getBaseType() != Type_t::VOID) {
+                errors.emplace_back("Error: Non-void function must return a value.");
+                return false;
+            }
+        }
+        return res;
     }
 
     bool ASTChecker::visit(WhileStmt& node)
     {
         // TODO(Lab3-1): 实现while循环的语义检查
         // 检查作用域，访问条件表达式，管理循环深度，访问循环体
-        (void)node;
-        TODO("Lab3-1: Implement WhileStmt semantic checking");
+        //TODO("Lab3-1: Implement WhileStmt semantic checking");
+        bool res = true;
+        res &= apply(*this, *(node.cond));
+        Type* condType = node.cond->attr.val.value.type;
+        if (!condType) {
+            errors.emplace_back("Error: Condition expression has no type.");
+            return false;
+        }
+        Type_t condBase = condType->getBaseType();
+        if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
+            errors.emplace_back("Error: Condition expression must be of type bool");
+            return false;
+        }
+        loopDepth++;
+        symTable.enterScope_impl();
+        res &= apply(*this, *(node.body));
+        symTable.exitScope_impl();
+        loopDepth--;
+        return res;
     }
 
     bool ASTChecker::visit(IfStmt& node)
     {
         // TODO(Lab3-1): 实现if语句的语义检查
         // 检查作用域，访问条件表达式，分别访问then和else分支
-        (void)node;
-        TODO("Lab3-1: Implement IfStmt semantic checking");
+        //TODO("Lab3-1: Implement IfStmt semantic checking");
+        bool res = true;
+        res &= apply(*this, *(node.cond));
+        Type* condType = node.cond->attr.val.value.type;
+        if (!condType) {
+            errors.emplace_back("Error: Condition expression has no type.");
+            return false;
+        }
+        Type_t condBase = condType->getBaseType();
+        if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
+            errors.emplace_back("Error: Condition expression must be of type bool");
+            return false;
+        }
+        symTable.enterScope_impl();
+        res &= apply(*this, *(node.thenStmt));
+        symTable.exitScope_impl();
+        if (node.elseStmt) {
+            symTable.enterScope_impl();
+            res &= apply(*this, *(node.elseStmt));
+            symTable.exitScope_impl();
+        }
+        return res;
     }
 
     bool ASTChecker::visit(BreakStmt& node)
     {
         // TODO(Lab3-1): 实现break语句的语义检查
         // 检查是否在循环内使用
-        (void)node;
-        TODO("Lab3-1: Implement BreakStmt semantic checking");
+        //TODO("Lab3-1: Implement BreakStmt semantic checking");
+        if (loopDepth == 0) {
+            errors.emplace_back("Error: 'break' statement not within a loop.");
+            return false;
+        }
+        return true;
     }
 
     bool ASTChecker::visit(ContinueStmt& node)
     {
         // TODO(Lab3-1): 实现continue语句的语义检查
         // 检查是否在循环内使用
-        (void)node;
-        TODO("Lab3-1: Implement ContinueStmt semantic checking");
+        //TODO("Lab3-1: Implement ContinueStmt semantic checking");
+        if (loopDepth == 0) {
+            errors.emplace_back("Error: 'continue' statement not within a loop.");
+            return false;
+        }
+        return true;
     }
 
     bool ASTChecker::visit(ForStmt& node)
     {
         // TODO(Lab3-1): 实现for循环的语义检查
         // 检查作用域，访问初始化、条件、步进表达式，管理循环深度
-        (void)node;
-        TODO("Lab3-1: Implement ForStmt semantic checking");
+        //TODO("Lab3-1: Implement ForStmt semantic checking");
+        bool res = true;
+        symTable.enterScope_impl();
+        if (node.init) {
+            res &= apply(*this, *(node.init));  
+        }
+        if (node.cond) {
+            res &= apply(*this, *(node.cond));
+            Type* condType = node.cond->attr.val.value.type;
+            if (!condType) {
+                errors.emplace_back("Error: Condition expression has no type.");
+                return false;
+            }
+            Type_t condBase = condType->getBaseType();
+            if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
+                errors.emplace_back("Error: Condition expression must be of type bool");
+                return false;
+            }
+        }
+        if (node.step) {
+            res &= apply(*this, *(node.step));
+        }
+        loopDepth++;
+        res &= apply(*this, *(node.body));
+        loopDepth--;
+        symTable.exitScope_impl();
+        return res;
     }
 }  // namespace FE::AST

@@ -38,13 +38,16 @@ namespace FE::Sym
         //TODO("Lab3-1: Get symbol from symbol table");
         for (auto it = scopestack.rbegin(); it != scopestack.rend(); ++it) {
         auto search = it->find(entry);
-        if (search != it->end()) {
+            if (search != it->end()) {
                     return search->second;
+            }
         }
+        return nullptr;
     }
-    return nullptr;
+    FE::AST::VarAttr* SymTable::getSymbol_impl(Entry* entry)
+    {
+        return scopestack.back().count(entry) ? scopestack.back()[entry] : nullptr;
     }
-
     bool SymTable::isGlobalScope_impl() { 
         //TODO("Lab3-1: Check if current scope is global scope"); 
         return scopeDepth == 0;}
