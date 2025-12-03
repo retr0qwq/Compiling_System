@@ -1,6 +1,6 @@
 #include <frontend/ast/visitor/sementic_check/ast_checker.h>
 #include <debug.h>
-
+#include <functional>
 namespace FE::AST
 {
     bool ASTChecker::visit(Initializer& node)
@@ -47,8 +47,43 @@ namespace FE::AST
         Type* varType = node.attr.val.value.type;
         bool isConst = node.attr.val.isConstexpr;
         auto* varAttr = new VarAttr(varType, isConst, symTable.getScopeDepth_impl());
+        // 处理数组维度
+        if (lval->indices && !lval->indices->empty()) {
+            varAttr->arrayDims.clear();
+            for(auto* expr : *(lval->indices)) {
+                if (!apply(*this, *expr)) {
+                    delete varAttr;
+                    return false;
+                }
+                Type_t idxType = expr->attr.val.value.type->getBaseType();
+                if (idxType != Type_t::INT && idxType != Type_t::LL && idxType != Type_t::BOOL) {
+                    errors.emplace_back("Error: Array index must be of integer type." + std::string("at line ") + std::to_string(node.line_num));
+                    delete varAttr;
+                    return false;
+                }
+                // 记录维度信息
+                if (expr->attr.val.isConstexpr) {
+                    int dimSize = 0;
+                    if (idxType == Type_t::INT) dimSize = expr->attr.val.getInt();
+                    else if (idxType == Type_t::LL) {
+                        long long dimLL = expr->attr.val.getLL();
+                        if (dimLL > static_cast<long long>(std::numeric_limits<int>::max())) {
+                            errors.emplace_back("Error: Array dimension size too large at line " + std::to_string(node.line_num));
+                            delete varAttr;
+                            return false;
+                        }
+                        dimSize = static_cast<int>(dimLL);
+                    }
+                    else if  (idxType == Type_t::LL ) dimSize = static_cast<int>(expr->attr.val.getLL());
+                    else if (idxType == Type_t::BOOL) dimSize = expr->attr.val.getBool() ? 1 : 0;
+                    varAttr->arrayDims.push_back(dimSize);
+                } else {
+                    errors.emplace_back("Error: Array dimension must be a constant expression." + std::string("at line ") + std::to_string(node.line_num));
+                    return false;
+                }
+            }
+        }
         symTable.addSymbol_impl(entry, varAttr); 
-        if (!apply(*this, *node.lval)) {return false;}
         node.attr.val=node.lval->attr.val;
         if (node.init) {
             res &= apply(*this, *node.init);
@@ -75,12 +110,78 @@ namespace FE::AST
                     res = false;
                 }
             }
-
             // 常量变量初始化要求常量表达式
             if (isConst && !node.init->attr.val.isConstexpr) {
                 errors.emplace_back("Error: Const variable '" + lval->entry->getName() +"' must be initialized with a constant expression." + std::string("at line ") + std::to_string(node.line_num)             );
                 res = false;
             }
+            std::vector<VarValue> flattened;
+            size_t totalSize = 1;
+            for (int dim : varAttr->arrayDims) totalSize *= dim;
+
+            std::function<bool(InitDecl*, int)> fill = [&](InitDecl* initNode, int dim) -> bool {
+                if (initNode->singleInit) {
+                    // 标量初始化
+                    if (dim != varAttr->arrayDims.size()) {
+                        errors.emplace_back("Error: Scalar initializer used for non-scalar array at line "
+                            + std::to_string(node.line_num));
+                        return false;
+                    }
+                    auto* initExpr = static_cast<Initializer*>(initNode)->init_val;
+                    if (!apply(*this, *initExpr)) return false;
+
+                    Type_t baseType = initExpr->attr.val.value.type->getBaseType();
+                    if (baseType == Type_t::INT)      flattened.emplace_back(initExpr->attr.val.getInt());
+                    else if (baseType == Type_t::LL)  flattened.emplace_back(initExpr->attr.val.getLL());
+                    else if (baseType == Type_t::BOOL)flattened.emplace_back(initExpr->attr.val.getBool() ? 1 : 0);
+
+                    return true;
+                }
+
+                // 初始化列表
+                auto* listNode = static_cast<InitializerList*>(initNode);
+                size_t subDimSize = 1;
+                for (int i = dim + 1; i < varAttr->arrayDims.size(); i++)
+                    subDimSize *= varAttr->arrayDims[i];
+
+                int maxElements = varAttr->arrayDims[dim];
+                int count = 0;
+
+                for (auto* subInit : *(listNode->init_list)) {
+                    if (count >= maxElements) {
+                        errors.emplace_back("Error: Too many initializers at line "
+                            + std::to_string(node.line_num));
+                        return false;
+                    }
+                    if (!fill(subInit, dim + 1)) return false;
+                    count++;
+                }
+
+                // 自动补零
+                size_t shouldSize = flattened.size() + (maxElements - count) * subDimSize;
+                while (flattened.size() < shouldSize)
+                    flattened.emplace_back(0);
+
+                return true;
+            };
+
+            if (!fill(node.init, 0)) return false;
+            if (varAttr->arrayDims.empty()) {
+                if (flattened.size() != 1) {
+                    errors.emplace_back("Error: Too many initializers for scalar variable at line "
+                                        + std::to_string(node.line_num));
+                    return false;
+                }
+            }
+            else {
+                if (flattened.size() > totalSize) {
+                    errors.emplace_back("Error: Initializers exceed array size at line "
+                                        + std::to_string(node.line_num));
+                    return false;
+                }
+            }
+            // 存入属性
+            varAttr->initList = std::move(flattened);
         }
         return res;
     }
