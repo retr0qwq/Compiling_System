@@ -18,7 +18,7 @@ namespace FE::AST
         }
         if (!mainExists)
         {
-            errors.emplace_back("Error: main function not found.");
+            errors.emplace_back("Error: main function not found." + std::string("at line ") + std::to_string(node.line_num));
             res = false;
         }
         return res;

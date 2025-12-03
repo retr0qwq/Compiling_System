@@ -10,7 +10,7 @@ namespace FE::AST
         //TODO("Lab3-1: Implement LeftValExpr semantic checking");
         VarAttr* attr = symTable.getSymbol_impl(node.entry);
         if (!attr) {
-            errors.emplace_back("Error: Undefined variable '" + node.entry->getName() + "'.");
+            errors.emplace_back("Error: Undefined variable '" + node.entry->getName() + "'." + "at line " + std::to_string(node.line_num));
             return false;
         }
 
@@ -18,7 +18,7 @@ namespace FE::AST
         size_t totalDims = attr->arrayDims.size();
 
         if (dimCount > totalDims) {
-            errors.emplace_back("Error: Too many indices for variable '" + node.entry->getName() + "'.");
+            errors.emplace_back("Error: Too many indices for variable '" + node.entry->getName() + "'." + "at line " + std::to_string(node.line_num));
             return false;
         }
 
@@ -34,7 +34,7 @@ namespace FE::AST
 
             Type_t idxType = idxNode->attr.val.value.type->getBaseType();
             if (idxType != Type_t::INT && idxType != Type_t::LL && idxType != Type_t::BOOL) {
-                errors.emplace_back("Error: Array index must be of integer type.");
+                errors.emplace_back("Error: Array index must be of integer type." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
 
@@ -64,7 +64,7 @@ namespace FE::AST
                     // 越界检查
                     if (idx < 0 || idx >= static_cast<int>(attr->arrayDims[i])) {
                         errors.emplace_back("Error: Array index out of bounds for variable '" +
-                                            node.entry->getName() + "'.");
+                                            node.entry->getName() + "'." + "at line " + std::to_string(node.line_num));
                         node.attr.val.isConstexpr = false;
                         return false;
                     }
@@ -73,7 +73,7 @@ namespace FE::AST
                 if (pos < static_cast<int>(attr->initList.size())) {
                     node.attr.val = ExprValue(attr->initList[pos], true);
                 } else {
-                    errors.emplace_back("Error: Internal array initList size mismatch.");
+                    errors.emplace_back("Error: Internal array initList size mismatch."  + std::string("at line ") + std::to_string(node.line_num));
                     node.attr.val.isConstexpr = false;
                 }
             }
@@ -114,12 +114,12 @@ namespace FE::AST
         Type* expr_type = node.expr->attr.val.value.type;
         if(node.op == Operator::NOT) {
             if(expr_type->getBaseType() != Type_t::BOOL) {
-                errors.emplace_back("Error: Invalid operand type for '!' operator.");
+                errors.emplace_back("Error: Invalid operand type for '!' operator."  + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
         if (node.op != Operator::SUB && node.op != Operator::NOT) {
-        errors.emplace_back("Error: Unsupported unary operator.");
+        errors.emplace_back("Error: Unsupported unary operator."  + std::string("at line ") + std::to_string(node.line_num));
         return false;
         }
         bool hasError = false;
@@ -158,12 +158,12 @@ namespace FE::AST
                     break;
                 }
                 if (lhsBase == Type_t::BOOL || rhsBase == Type_t::BOOL) {
-                    errors.emplace_back("Error: arithmetic operator cannot apply to boolean type.");
+                    errors.emplace_back("Error: arithmetic operator cannot apply to boolean type."  + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 if (node.op == Operator::MOD &&
                     (lhsBase == Type_t::FLOAT || rhsBase == Type_t::FLOAT)) {
-                    errors.emplace_back("Error: '%' operator cannot be applied to float type.");
+                    errors.emplace_back("Error: '%' operator cannot be applied to float type. at line " + std::to_string(node.line_num));
                     return false;
                 }
                 break;
@@ -172,7 +172,7 @@ namespace FE::AST
             case Operator::BITOR:
                 // 位运算仅允许整型
                 if (lhsBase == Type_t::FLOAT || rhsBase == Type_t::FLOAT) {
-                    errors.emplace_back("Error: bitwise operator cannot apply to float type.");
+                    errors.emplace_back("Error: bitwise operator cannot apply to float type." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 break;
@@ -181,7 +181,7 @@ namespace FE::AST
             case Operator::OR:
                 // 逻辑运算要求布尔类型
                 if (lhsBase != Type_t::BOOL || rhsBase != Type_t::BOOL) {
-                    errors.emplace_back("Error: logical operator requires boolean operands.");
+                    errors.emplace_back("Error: logical operator requires boolean operands." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 break;
@@ -192,21 +192,21 @@ namespace FE::AST
                 break;
             case Operator::ASSIGN:
                 if (dynamic_cast<LeftValExpr*>(node.lhs) == nullptr||!dynamic_cast<LeftValExpr*>(node.lhs)->isLval) {
-                    errors.emplace_back("Error: Left-hand side of assignment must be a left value.");
+                    errors.emplace_back("Error: Left-hand side of assignment must be a left value." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 VarAttr* lhsAttr = symTable.getSymbol_impl(dynamic_cast<LeftValExpr*>(node.lhs)->entry);
                 if(!lhsAttr) {
-                    errors.emplace_back("Error: Undefined variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'.");
+                    errors.emplace_back("Error: Undefined variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 if (lhsAttr->isConstDecl) {
-                    errors.emplace_back("Error: Cannot assign to constant variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'.");
+                    errors.emplace_back("Error: Cannot assign to constant variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }
                 if (lhsType->getTypeGroup() == TypeGroup::POINTER || rhsType->getTypeGroup() == TypeGroup::POINTER){
-                    if(lhsType!=rhsType){
-                        errors.emplace_back("Error: Type mismatch in assignment.");
+                    if(lhsBase!= rhsBase){
+                        errors.emplace_back("Error: Type mismatch in assignment." + std::string("at line ") + std::to_string(node.line_num));
                         return false;
                     }
                 }
@@ -214,13 +214,13 @@ namespace FE::AST
                     if (!((lhsBase == Type_t::BOOL || lhsBase == Type_t::INT ||lhsBase == Type_t::LL || lhsBase == Type_t::FLOAT) &&
                             (rhsBase == Type_t::BOOL || rhsBase == Type_t::INT ||rhsBase == Type_t::LL || rhsBase == Type_t::FLOAT)
                         )) {
-                        errors.emplace_back("Error: Type mismatch in assignment.");
+                        errors.emplace_back("Error: Type mismatch in assignment." + std::string("at line ") + std::to_string(node.line_num));
                         return false;
                     }
                 }
                 break;
             default:
-                errors.emplace_back("Error: Unknown binary operator.");
+                errors.emplace_back("Error: Unknown binary operator." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
         }
 
@@ -243,7 +243,7 @@ namespace FE::AST
         // 检查函数是否存在，访问实参列表，检查参数数量和类型匹配
         //TODO("Lab3-1: Implement CallExpr semantic checking");
         if (!node.func) {
-            errors.emplace_back("Error: function not defined.");
+            errors.emplace_back("Error: function not defined." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
     }
@@ -260,7 +260,7 @@ namespace FE::AST
             res &= apply(*this, *expr);
         }
         if (node.exprs->empty()) {
-            errors.emplace_back("Error: Comma expression has no sub-expressions.");
+            errors.emplace_back("Error: Comma expression has no sub-expressions." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
 

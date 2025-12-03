@@ -15,8 +15,46 @@ namespace FE::AST
     {
         // TODO(Lab3-1): 实现函数声明的语义检查
         // 检查作用域，记录函数信息，处理形参和函数体，检查返回语句
-        (void)node;
-        TODO("Lab3-1: Implement FuncDeclStmt semantic checking");
+        //TODO("Lab3-1: Implement FuncDeclStmt semantic checking");
+        bool res = true;
+        if (symTable.getlocalSymbol_impl(node.entry)) {
+            errors.emplace_back("Error: Redefinition of function '" + node.entry->getName() + "'." + std::string("at line ") + std::to_string(node.line_num));
+            return false;
+        }
+        VarAttr* funcAttr = new VarAttr(node.retType, false, symTable.getScopeDepth_impl());
+        symTable.addSymbol_impl(node.entry, funcAttr);
+        funcDecls[node.entry] = &node;
+        // main 函数标记
+        if (node.entry->getName() == "main") {
+            mainExists = true;
+            if (node.retType->getBaseType() != Type_t::INT) {
+                errors.emplace_back("Error: main function must return int." + std::string("at line ") + std::to_string(node.line_num));
+                res = false;
+            }
+        }
+        symTable.enterScope_impl();
+        curFuncRetType = node.retType;
+        funcHasReturn = false;
+
+        for (auto* param : *(node.params)) {
+            res &= apply(*this, *param);
+        }
+
+        res &= apply(*this, *(node.body));
+
+        Type_t retBase = curFuncRetType->getBaseType();
+        if (retBase != Type_t::VOID && !funcHasReturn) {
+            errors.emplace_back("Error: Non-void function '" + node.entry->getName() + "' must return a value." + std::string("at line ") + std::to_string(node.line_num));
+            res = false;
+        }
+
+        symTable.exitScope_impl();
+
+        // 清除上下文信息
+        curFuncRetType= nullptr;
+        funcHasReturn = false;
+
+        return res;
     }
 
     bool ASTChecker::visit(VarDeclStmt& node)
@@ -54,17 +92,17 @@ namespace FE::AST
             res &= apply(*this, *(node.retExpr));
             Type* retType = node.retExpr->attr.val.value.type;
             if (!retType) {
-                errors.emplace_back("Error: Return expression has no type.");
+                errors.emplace_back("Error: Return expression has no type." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
             if (retType->getBaseType() != curFuncRetType->getBaseType()) {
-                errors.emplace_back("Error: Return type mismatch.");
+                errors.emplace_back("Error: Return type mismatch." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
         else{
             if (curFuncRetType->getBaseType() != Type_t::VOID) {
-                errors.emplace_back("Error: Non-void function must return a value.");
+                errors.emplace_back("Error: Non-void function must return a value." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
@@ -80,12 +118,12 @@ namespace FE::AST
         res &= apply(*this, *(node.cond));
         Type* condType = node.cond->attr.val.value.type;
         if (!condType) {
-            errors.emplace_back("Error: Condition expression has no type.");
+            errors.emplace_back("Error: Condition expression has no type." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         Type_t condBase = condType->getBaseType();
         if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
-            errors.emplace_back("Error: Condition expression must be of type bool");
+            errors.emplace_back("Error: Condition expression must be of type bool" + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         loopDepth++;
@@ -105,12 +143,12 @@ namespace FE::AST
         res &= apply(*this, *(node.cond));
         Type* condType = node.cond->attr.val.value.type;
         if (!condType) {
-            errors.emplace_back("Error: Condition expression has no type.");
+            errors.emplace_back("Error: Condition expression has no type." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         Type_t condBase = condType->getBaseType();
         if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
-            errors.emplace_back("Error: Condition expression must be of type bool");
+            errors.emplace_back("Error: Condition expression must be of type bool" + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         symTable.enterScope_impl();
@@ -130,7 +168,7 @@ namespace FE::AST
         // 检查是否在循环内使用
         //TODO("Lab3-1: Implement BreakStmt semantic checking");
         if (loopDepth == 0) {
-            errors.emplace_back("Error: 'break' statement not within a loop.");
+            errors.emplace_back("Error: 'break' statement not within a loop." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         return true;
@@ -142,7 +180,7 @@ namespace FE::AST
         // 检查是否在循环内使用
         //TODO("Lab3-1: Implement ContinueStmt semantic checking");
         if (loopDepth == 0) {
-            errors.emplace_back("Error: 'continue' statement not within a loop.");
+            errors.emplace_back("Error: 'continue' statement not within a loop." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
         return true;
@@ -162,12 +200,12 @@ namespace FE::AST
             res &= apply(*this, *(node.cond));
             Type* condType = node.cond->attr.val.value.type;
             if (!condType) {
-                errors.emplace_back("Error: Condition expression has no type.");
+                errors.emplace_back("Error: Condition expression has no type." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
             Type_t condBase = condType->getBaseType();
             if (condBase != Type_t::BOOL&& condBase != Type_t::INT && condBase != Type_t::LL&& condBase != Type_t::FLOAT) {
-                errors.emplace_back("Error: Condition expression must be of type bool");
+                errors.emplace_back("Error: Condition expression must be of type bool" + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
