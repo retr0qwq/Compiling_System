@@ -23,15 +23,17 @@ namespace FE::AST
         }
 
         bool allConst = true;
+        node.isLval = true;
         std::vector<int> idxValues;
-
+        size_t dimleft = totalDims - dimCount;
+        TypeFactory& tf = TypeFactory::getInstance();
         // 遍历每个下标表达式
         for (size_t i = 0; i < dimCount; ++i) {
             ExprNode* idxNode = (*(node.indices))[i];
             if (!apply(*this, *idxNode)) return false;
 
             Type_t idxType = idxNode->attr.val.value.type->getBaseType();
-            if (idxType != Type_t::INT && idxType != Type_t::LL) {
+            if (idxType != Type_t::INT && idxType != Type_t::LL && idxType != Type_t::BOOL) {
                 errors.emplace_back("Error: Array index must be of integer type.");
                 return false;
             }
@@ -41,6 +43,7 @@ namespace FE::AST
                 int val = 0;
                 if (idxType == Type_t::INT) val = idxNode->attr.val.getInt();
                 else if (idxType == Type_t::LL) val = static_cast<int>(idxNode->attr.val.getLL());
+                else if (idxType == Type_t::BOOL) val = idxNode->attr.val.getBool() ? 1 : 0;
                 idxValues.push_back(val);
             } else {
                 allConst = false;
@@ -48,42 +51,47 @@ namespace FE::AST
             }
         }
 
-        // 计算最终类型：剩余维度或基础类型
-        Type* baseType = attr->type;
-        for (size_t i = 0; i < dimCount; ++i) {
-            if (baseType->getTypeGroup() == TypeGroup::POINTER) {
-                baseType = static_cast<FE::AST::PtrType*>(baseType)->base;
-            }
-        }
-        node.attr.val.value.type = baseType;
-        node.attr.val.isConstexpr = attr->isConstDecl && allConst;
-
-        // 常量折叠：从 initList 中逐层访问
-        if (allConst && dimCount > 0 && !attr->initList.empty()) {
-            VarValue val = attr->initList.front(); // start from top-level array
-            for (size_t i = 0; i < dimCount; ++i) {
-                int idx = idxValues[i];
-                if (idx < 0 || idx >= static_cast<int>(attr->arrayDims[i])) {
-                    errors.emplace_back("Error: Array index out of bounds for variable '" +
-                                        node.entry->getName() + "'.");
-                    node.attr.val.isConstexpr = false;
-                    break;
+        if (dimleft == 0) {
+            // 完全索引，结果为标量
+            node.attr.val.value.type = attr->type;
+            node.attr.val.isConstexpr = (attr->isConstDecl && allConst);
+            // 常量折叠
+            if (node.attr.val.isConstexpr && !attr->initList.empty()) {
+                // 计算线性偏移 pos
+                int pos = 0;
+                for (size_t i = 0; i < dimCount; ++i) {
+                    int idx = idxValues[i];
+                    // 越界检查
+                    if (idx < 0 || idx >= static_cast<int>(attr->arrayDims[i])) {
+                        errors.emplace_back("Error: Array index out of bounds for variable '" +
+                                            node.entry->getName() + "'.");
+                        node.attr.val.isConstexpr = false;
+                        return false;
+                    }
+                    pos = pos * attr->arrayDims[i] + idx;
                 }
-
-                // 多维数组折叠：每个元素是 VarValue::initList，假设嵌套展开
-                // 简化处理：这里假设 attr->initList 已经按行优先展开为一维
-                if (i < dimCount - 1) {
-                    // 计算偏移量
-                    int stride = 1;
-                    for (size_t j = i + 1; j < attr->arrayDims.size(); ++j) stride *= attr->arrayDims[j];
-                    val = attr->initList[idx * stride]; 
+                if (pos < static_cast<int>(attr->initList.size())) {
+                    node.attr.val = ExprValue(attr->initList[pos], true);
                 } else {
-                    val = attr->initList[idx];
+                    errors.emplace_back("Error: Internal array initList size mismatch.");
+                    node.attr.val.isConstexpr = false;
                 }
             }
-            node.attr.val = ExprValue(val, true);
+        } else {
+
+            Type* baseType = attr->type;
+            for (size_t i = 0; i < dimleft; ++i) {
+                Type* t = attr->type;
+                for (size_t i = 0; i < dimleft; ++i) {
+                    t = tf.getPtrType(t);
+                }
+                node.attr.val.value.type = t;
+                node.attr.val.isConstexpr = false;
+            }
+            node.attr.val.value.type = baseType;
         }
 
+        
         return true;
     }
 
@@ -182,7 +190,35 @@ namespace FE::AST
             case Operator::LT: case Operator::LE:
             case Operator::EQ: case Operator::NEQ:
                 break;
-
+            case Operator::ASSIGN:
+                if (dynamic_cast<LeftValExpr*>(node.lhs) == nullptr||!dynamic_cast<LeftValExpr*>(node.lhs)->isLval) {
+                    errors.emplace_back("Error: Left-hand side of assignment must be a left value.");
+                    return false;
+                }
+                VarAttr* lhsAttr = symTable.getSymbol_impl(dynamic_cast<LeftValExpr*>(node.lhs)->entry);
+                if(!lhsAttr) {
+                    errors.emplace_back("Error: Undefined variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'.");
+                    return false;
+                }
+                if (lhsAttr->isConstDecl) {
+                    errors.emplace_back("Error: Cannot assign to constant variable '" + dynamic_cast<LeftValExpr*>(node.lhs)->entry->getName() + "'.");
+                    return false;
+                }
+                if (lhsType->getTypeGroup() == TypeGroup::POINTER || rhsType->getTypeGroup() == TypeGroup::POINTER){
+                    if(lhsType!=rhsType){
+                        errors.emplace_back("Error: Type mismatch in assignment.");
+                        return false;
+                    }
+                }
+                else{
+                    if (!((lhsBase == Type_t::BOOL || lhsBase == Type_t::INT ||lhsBase == Type_t::LL || lhsBase == Type_t::FLOAT) &&
+                            (rhsBase == Type_t::BOOL || rhsBase == Type_t::INT ||rhsBase == Type_t::LL || rhsBase == Type_t::FLOAT)
+                        )) {
+                        errors.emplace_back("Error: Type mismatch in assignment.");
+                        return false;
+                    }
+                }
+                break;
             default:
                 errors.emplace_back("Error: Unknown binary operator.");
                 return false;
