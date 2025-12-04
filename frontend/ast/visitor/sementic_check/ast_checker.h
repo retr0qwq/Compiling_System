@@ -52,7 +52,6 @@ namespace FE::AST
 
       public:
         std::vector<std::string> errors;
-
         ASTChecker()
             : symTable(),
               glbSymbols(),

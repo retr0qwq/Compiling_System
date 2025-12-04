@@ -44,8 +44,9 @@ namespace FE::Sym
         }
         return nullptr;
     }
-    FE::AST::VarAttr* SymTable::getSymbol_impl(Entry* entry)
+    FE::AST::VarAttr* SymTable::getlocalSymbol_impl(Entry* entry)
     {
+        
         return scopestack.back().count(entry) ? scopestack.back()[entry] : nullptr;
     }
     bool SymTable::isGlobalScope_impl() { 

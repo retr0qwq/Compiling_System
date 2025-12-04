@@ -327,6 +327,10 @@ PARAM_DECLARATOR:
         Entry* entry = Entry::getEntry($2);
         $$ = new ParamDeclarator($1, entry, dim, @1.begin.line, @1.begin.column);
     }
+    | TYPE IDENT ARRAY_DIMENSION_EXPR_LIST {
+        Entry* entry = Entry::getEntry($2);
+        $$ = new ParamDeclarator($1, entry, $3, @1.begin.line, @1.begin.column);
+    }
     ;
 
     PARAM_DECLARATOR_LIST:

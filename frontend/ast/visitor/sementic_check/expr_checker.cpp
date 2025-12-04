@@ -190,7 +190,7 @@ namespace FE::AST
             case Operator::LT: case Operator::LE:
             case Operator::EQ: case Operator::NEQ:
                 break;
-            case Operator::ASSIGN:
+            case Operator::ASSIGN:{
                 if (dynamic_cast<LeftValExpr*>(node.lhs) == nullptr||!dynamic_cast<LeftValExpr*>(node.lhs)->isLval) {
                     errors.emplace_back("Error: Left-hand side of assignment must be a left value." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
@@ -205,7 +205,7 @@ namespace FE::AST
                     return false;
                 }
                 if (lhsType->getTypeGroup() == TypeGroup::POINTER || rhsType->getTypeGroup() == TypeGroup::POINTER){
-                    if(lhsBase!= rhsBase){
+                    if(lhsBase!= rhsBase||(lhsType->getTypeGroup() != rhsType->getTypeGroup())) {
                         errors.emplace_back("Error: Type mismatch in assignment." + std::string("at line ") + std::to_string(node.line_num));
                         return false;
                     }
@@ -219,6 +219,13 @@ namespace FE::AST
                     }
                 }
                 break;
+            }
+            case Operator::NOT:
+                errors.emplace_back("Error: '!' is a unary operator." + std::string("at line ") + std::to_string(node.line_num));
+                return false;
+            case Operator::UNK:
+                errors.emplace_back("Error: Unknown binary operator." + std::string("at line ") + std::to_string(node.line_num));
+                return false;
             default:
                 errors.emplace_back("Error: Unknown binary operator." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
@@ -242,10 +249,53 @@ namespace FE::AST
         // TODO(Lab3-1): 实现函数调用表达式的语义检查
         // 检查函数是否存在，访问实参列表，检查参数数量和类型匹配
         //TODO("Lab3-1: Implement CallExpr semantic checking");
-        if (!node.func) {
+        if (!node.func|| funcDecls.count(node.func) == 0) {
             errors.emplace_back("Error: function not defined." + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
+        FuncDeclStmt* funcDef = funcDecls[node.func];
+        auto &params = *(funcDef->params);
+        size_t paramCount = params.size();
+        size_t argCount = node.args ? node.args->size() : 0;
+
+        if (argCount != paramCount) {
+        errors.emplace_back( "Error: function '" + funcDef->entry->getName() + "' expects " + std::to_string(paramCount) + " argument(s), but " + std::to_string(argCount) + " given at line " + std::to_string(node.line_num));
+        return false;
+        }
+        for (size_t i = 0; i < argCount; i++) {
+            ExprNode* arg = (*node.args)[i];
+            if (!apply(*this, *arg))
+                return false;
+            Type* lhsType = arg->attr.val.value.type;
+            Type* rhsType = params[i]->type; 
+
+            Type_t lhsBase = lhsType->getBaseType();
+            Type_t rhsBase = rhsType->getBaseType();
+            if (lhsType->getTypeGroup() == TypeGroup::POINTER ||rhsType->getTypeGroup() == TypeGroup::POINTER) {
+                if (lhsBase != rhsBase||(lhsType->getTypeGroup() != rhsType->getTypeGroup())) {
+                    errors.emplace_back(
+                        "Error: Type mismatch in initialization of '" +funcDef->entry->getName() + "' at line " +std::to_string(node.line_num)
+                    );
+                    return false;
+                }
+            }
+            else {
+                bool lhsIsNum = (lhsBase == Type_t::BOOL || lhsBase == Type_t::INT ||lhsBase == Type_t::LL   || lhsBase == Type_t::FLOAT);
+                bool rhsIsNum = (rhsBase == Type_t::BOOL || rhsBase == Type_t::INT || rhsBase == Type_t::LL   || rhsBase == Type_t::FLOAT);
+
+                if (!(lhsIsNum && rhsIsNum)) {
+                    errors.emplace_back("Error: Type mismatch in initialization of '" +funcDef->entry->getName() + "' at line " + std::to_string(node.line_num));
+                    return false;
+                }
+            }
+            node.attr.val.value.type = funcDef->retType;
+            return true;
+        }
+
+        // 5. 设置返回类型
+        node.attr.val.value.type = funcDef->retType;
+
+        return true;
     }
 
     bool ASTChecker::visit(CommaExpr& node)

@@ -1,6 +1,7 @@
 #include <frontend/ast/visitor/sementic_check/ast_checker.h>
 #include <debug.h>
 #include <functional>
+#include <limits>
 namespace FE::AST
 {
     bool ASTChecker::visit(Initializer& node)
@@ -94,7 +95,7 @@ namespace FE::AST
             Type_t lhsBase = lhsType->getBaseType();
             Type_t rhsBase = rhsType->getBaseType();
             if (lhsType->getTypeGroup() == TypeGroup::POINTER ||rhsType->getTypeGroup() == TypeGroup::POINTER) {
-                if (lhsBase != rhsBase) {
+                if (lhsBase != rhsBase||(lhsType->getTypeGroup() != rhsType->getTypeGroup())) {
                     errors.emplace_back(
                         "Error: Type mismatch in initialization of '" +lval->entry->getName() + "' at line " +std::to_string(node.line_num)
                     );
@@ -117,9 +118,8 @@ namespace FE::AST
             }
             std::vector<VarValue> flattened;
             size_t totalSize = 1;
-            for (int dim : varAttr->arrayDims) totalSize *= dim;
-
-            std::function<bool(InitDecl*, int)> fill = [&](InitDecl* initNode, int dim) -> bool {
+            for (size_t dim : varAttr->arrayDims) totalSize *= dim;
+            std::function<bool(InitDecl*, int)> fill = [&](InitDecl* initNode, size_t dim) -> bool {
                 if (initNode->singleInit) {
                     // 标量初始化
                     if (dim != varAttr->arrayDims.size()) {
@@ -137,15 +137,30 @@ namespace FE::AST
 
                     return true;
                 }
+                // 仅当这一维的数组长度为 1 时才可以剥皮
+            while (!initNode->singleInit) {
+                auto* listNode = static_cast<InitializerList*>(initNode);
 
+                // 如果当前维度的数组大小 > 1，则不能剥皮
+                if (varAttr->arrayDims[dim] > 1)
+                    break;
+
+                // 如果只有一个元素，可以剥皮
+                if (listNode->init_list->size() == 1) {
+                    initNode = (*listNode->init_list)[0];
+                    continue;
+                }
+
+                break;
+            }
                 // 初始化列表
                 auto* listNode = static_cast<InitializerList*>(initNode);
                 size_t subDimSize = 1;
-                for (int i = dim + 1; i < varAttr->arrayDims.size(); i++)
+                for (size_t i = dim + 1; i < varAttr->arrayDims.size(); i++)
                     subDimSize *= varAttr->arrayDims[i];
 
-                int maxElements = varAttr->arrayDims[dim];
-                int count = 0;
+                size_t maxElements = varAttr->arrayDims[dim];
+                size_t count = 0;
 
                 for (auto* subInit : *(listNode->init_list)) {
                     if (count >= maxElements) {
