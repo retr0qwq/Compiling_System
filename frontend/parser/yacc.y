@@ -271,20 +271,10 @@ IF_STMT:
 
 BLOCK_STMT:
     LBRACE RBRACE {
-        $$ = nullptr;
+        $$ = new BlockStmt(new std::vector<StmtNode*>(), @1.begin.line, @1.begin.column);
     }
     | LBRACE STMT_LIST RBRACE {
-        if (!$2 || $2->empty())
-        {
-            $$ = nullptr;
-            delete $2;
-        }
-        else if ($2->size() == 1)
-        {
-            $$ = (*$2)[0];
-            delete $2;
-        }
-        else $$ = new BlockStmt($2, @1.begin.line, @1.begin.column);
+        $$ = new BlockStmt($2, @1.begin.line, @1.begin.column);
     }
     ;
 

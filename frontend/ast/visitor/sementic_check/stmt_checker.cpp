@@ -126,6 +126,7 @@ namespace FE::AST
             errors.emplace_back("Error: Condition expression must be of type bool" + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
+        if (!node.body) return true;
         loopDepth++;
         symTable.enterScope_impl();
         res &= apply(*this, *(node.body));
@@ -151,6 +152,7 @@ namespace FE::AST
             errors.emplace_back("Error: Condition expression must be of type bool" + std::string("at line ") + std::to_string(node.line_num));
             return false;
         }
+        if (!node.thenStmt) return true;
         symTable.enterScope_impl();
         res &= apply(*this, *(node.thenStmt));
         symTable.exitScope_impl();
@@ -212,6 +214,7 @@ namespace FE::AST
         if (node.step) {
             res &= apply(*this, *(node.step));
         }
+        if (!node.body) return true;
         loopDepth++;
         res &= apply(*this, *(node.body));
         loopDepth--;

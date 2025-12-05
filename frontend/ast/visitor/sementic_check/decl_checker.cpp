@@ -111,11 +111,7 @@ namespace FE::AST
                     res = false;
                 }
             }
-            // 常量变量初始化要求常量表达式
-            if (isConst && !node.init->attr.val.isConstexpr) {
-                errors.emplace_back("Error: Const variable '" + lval->entry->getName() +"' must be initialized with a constant expression." + std::string("at line ") + std::to_string(node.line_num)             );
-                res = false;
-            }
+            node.lval->attr.val.isConstexpr = node.init->attr.val.isConstexpr;
             std::vector<VarValue> flattened;
             size_t totalSize = 1;
             for (size_t dim : varAttr->arrayDims) totalSize *= dim;
@@ -134,18 +130,18 @@ namespace FE::AST
                     if (baseType == Type_t::INT)      flattened.emplace_back(initExpr->attr.val.getInt());
                     else if (baseType == Type_t::LL)  flattened.emplace_back(initExpr->attr.val.getLL());
                     else if (baseType == Type_t::BOOL)flattened.emplace_back(initExpr->attr.val.getBool() ? 1 : 0);
-
+                    else if (baseType == Type_t::FLOAT)flattened.emplace_back(initExpr->attr.val.getFloat());
+                    else {
+                        errors.emplace_back("Error: Unsupported initializer type at line " + std::to_string(node.line_num));
+                        return false;
+                    }
                     return true;
                 }
-                // 仅当这一维的数组长度为 1 时才可以剥皮
-            while (!initNode->singleInit) {
+             while (!initNode->singleInit) {
                 auto* listNode = static_cast<InitializerList*>(initNode);
-
-                // 如果当前维度的数组大小 > 1，则不能剥皮
                 if (varAttr->arrayDims[dim] > 1)
                     break;
 
-                // 如果只有一个元素，可以剥皮
                 if (listNode->init_list->size() == 1) {
                     initNode = (*listNode->init_list)[0];
                     continue;
@@ -164,8 +160,7 @@ namespace FE::AST
 
                 for (auto* subInit : *(listNode->init_list)) {
                     if (count >= maxElements) {
-                        errors.emplace_back("Error: Too many initializers at line "
-                            + std::to_string(node.line_num));
+                        errors.emplace_back("Error: Too many initializers at line "+ std::to_string(node.line_num));
                         return false;
                     }
                     if (!fill(subInit, dim + 1)) return false;
@@ -183,15 +178,13 @@ namespace FE::AST
             if (!fill(node.init, 0)) return false;
             if (varAttr->arrayDims.empty()) {
                 if (flattened.size() != 1) {
-                    errors.emplace_back("Error: Too many initializers for scalar variable at line "
-                                        + std::to_string(node.line_num));
+                    errors.emplace_back("Error: Too many initializers for scalar variable at line "+ std::to_string(node.line_num));
                     return false;
                 }
             }
             else {
                 if (flattened.size() > totalSize) {
-                    errors.emplace_back("Error: Initializers exceed array size at line "
-                                        + std::to_string(node.line_num));
+                    errors.emplace_back("Error: Initializers exceed array size at line " + std::to_string(node.line_num));
                     return false;
                 }
             }
@@ -214,42 +207,36 @@ namespace FE::AST
         TypeFactory& tf = TypeFactory::getInstance();
         Type* baseType = tf.getBasicType(node.type->getBaseType());
         VarAttr* attr = new VarAttr(baseType, false, symTable.getScopeDepth_impl());
-        if (!node.dims->empty()) {
-        attr->arrayDims.reserve(node.dims->size());
-        bool allConst = true;
-        for (auto expr : *(node.dims)) {
-            if (!apply(*this, *expr)) return false;
-            // 检查维度是否整数类型
-            auto t = expr->attr.val.value.type->getBaseType();
-            if (t != Type_t::INT && t != Type_t::LL) {
-                errors.emplace_back("Error: Array dimension must be integer expression."+ std::string("at line ") + std::to_string(node.line_num));
-                attr->arrayDims.push_back(-1);
-                allConst = false;
-                continue;
-            }
-
-            if (!expr->attr.val.isConstexpr) {
-                attr->arrayDims.push_back(-1);
-                allConst = false;
-            } else {
-                long long dim = (t == Type_t::INT) ?
-                                expr->attr.val.getInt() :
-                                expr->attr.val.getLL();
-                if (dim <= 0) {
-                    errors.emplace_back("Error: Array dimension must be > 0."+ std::string("at line ") + std::to_string(node.line_num));
-                    dim = 1; 
+        if (node.dims && !node.dims->empty()) {
+            attr->arrayDims.reserve(node.dims->size());
+            for (auto expr : *(node.dims)) {
+                if (!apply(*this, *expr)) return false;
+                // 检查维度是否整数类型
+                auto t = expr->attr.val.value.type->getBaseType();
+                if (t != Type_t::INT && t != Type_t::LL&& t != Type_t::BOOL) {
+                    errors.emplace_back("Error: Array dimension must be integer expression."+ std::string("at line ") + std::to_string(node.line_num));
+                    attr->arrayDims.push_back(-1);
+                    continue;
                 }
-                attr->arrayDims.push_back(static_cast<int>(dim));
+
+                if (!expr->attr.val.isConstexpr) {
+                    attr->arrayDims.push_back(-1);
+                    errors.emplace_back("Error: Array dimension must be a constant expression."+ std::string("at line ") + std::to_string(node.line_num));
+                } else {
+                    long long dim = (t == Type_t::INT) ?
+                                    expr->attr.val.getInt() :
+                                    expr->attr.val.getLL();
+                    attr->arrayDims.push_back(static_cast<int>(dim));
+                }
             }
+            baseType = tf.getPtrType(baseType); // int[] -> int*
+            attr->isConstDecl = false;
         }
-        baseType = tf.getPtrType(baseType); // int[] -> int*
-        attr->isConstDecl = node.attr.val.isConstexpr && allConst;
-    }
         symTable.addSymbol_impl(node.entry, attr);
         node.attr.val.value.type = baseType;
         node.attr.val.isConstexpr = false;
         return true;
-        }
+    }
     bool ASTChecker::visit(VarDeclaration& node)
     {
         // TODO(Lab3-1): 实现变量声明的语义检查

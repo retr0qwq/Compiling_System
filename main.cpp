@@ -223,57 +223,55 @@ int main(int argc, char** argv)
             ret = 1;
             goto cleanup_files;
         }
-
         if (step == "-parser")
         {
             FE::AST::ASTPrinter printer;
             std::ostream*       osPtr = outStream;
             apply(printer, *ast, osPtr);
-
             ret = 0;
             goto cleanup_ast;
         }
-
         /*
-         * Lab 3-1: 语义分析
-         *
-         * 本阶段需要实现语义分析器，遍历 AST 并检查源程序的静态语义正确性。
-         * 你的编译器需要能识别并报告以下错误：
-         * - 变量/函数重定义、变量未定义
-         * - 全局变量的运行期初始化
-         * - 非法的数组维度/下标/初始化
-         * - 函数调用参数不匹配
-         * - 非法赋值、非法返回值
-         * - `main` 函数未定义
-         * - 循环外的 `break`/`continue`
-         * - 非法的操作数类型 (如对浮点数取模)
-         *
-         * 主要任务:
-         * 1. 实现符号表:
-         *    - 符号表用于在作用域中管理符号定义。接口位于 `interfaces/frontend/symbol/isymbol_table.h`。
-         *    - 你需要实现 `frontend/symbol/symbol_table.h`中的 `enterScope`, `exitScope`, `addSymbol`, `getSymbol`
-         * 等方法。
-         *
-         * 2. 实现语义检查器:
-         *    - 实现符号表后，你需要通过访问 AST 来执行检查。
-         *    - 框架提供了 `frontend/ast/visitor/sementic_check/ast_checker.h` 中的 `ASTChecker` 访问者。
-         *    - 你需要填充各个 `visit` 方法的逻辑，利用符号表来发现并记录语义错误。
-         *
-         * 提示:
-         * - 你可能最开始并不理解这一部分的 "实现语义检查器"
-         * 具体要做哪些工作。简单来说就是，检查是否存在上述的语义错误，以及
-         * 维护符号属性，如变量的类型、函数的参数等以供后续的 IR 生成使用。
-         * 因此框架中保留了较为简单的几个 `visit` 方法的实现作为示例，你可以参考它们来实现其他节点的检查逻辑。
-         */
+        * Lab 3-1: 语义分析
+        *
+        * 本阶段需要实现语义分析器，遍历 AST 并检查源程序的静态语义正确性。
+        * 你的编译器需要能识别并报告以下错误：
+        * - 变量/函数重定义、变量未定义
+        * - 全局变量的运行期初始化
+        * - 非法的数组维度/下标/初始化
+        * - 函数调用参数不匹配
+        * - 非法赋值、非法返回值
+        * - `main` 函数未定义
+        * - 循环外的 `break`/`continue`
+        * - 非法的操作数类型 (如对浮点数取模)
+        *
+        * 主要任务:
+        * 1. 实现符号表:
+        *    - 符号表用于在作用域中管理符号定义。接口位于 `interfaces/frontend/symbol/isymbol_table.h`。
+        *    - 你需要实现 `frontend/symbol/symbol_table.h`中的 `enterScope`, `exitScope`, `addSymbol`, `getSymbol`
+        * 等方法。
+        *
+        * 2. 实现语义检查器:
+        *    - 实现符号表后，你需要通过访问 AST 来执行检查。
+        *    - 框架提供了 `frontend/ast/visitor/sementic_check/ast_checker.h` 中的 `ASTChecker` 访问者。
+        *    - 你需要填充各个 `visit` 方法的逻辑，利用符号表来发现并记录语义错误。
+        *
+        * 提示:
+        * - 你可能最开始并不理解这一部分的 "实现语义检查器"
+        * 具体要做哪些工作。简单来说就是，检查是否存在上述的语义错误，以及
+        * 维护符号属性，如变量的类型、函数的参数等以供后续的 IR 生成使用。
+        * 因此框架中保留了较为简单的几个 `visit` 方法的实现作为示例，你可以参考它们来实现其他节点的检查逻辑。
+        */
         FE::AST::ASTChecker checker;
         bool                accept = apply(checker, *ast);
         if (!accept)
         {
             cerr << "Semantic check failed with " << checker.errors.size() << " errors." << endl;
-            for (const auto& err : checker.errors) cerr << "Error: " << err << endl;
+            for (const auto& err : checker.errors) cerr << err << endl;
             ret = 1;
             goto cleanup_ast;
         }
+
 
         /*
          * Lab 3-2: 中间代码生成 (IR Generation)

@@ -9,7 +9,7 @@ namespace FE::AST
         // 重置符号表，遍历所有顶层语句进行检查，确保存在main函数
         //TODO("Lab3-1: Implement Root node semantic checking");
         symTable.reset();
-
+        symTable.enterScope();
         bool res = true;
         for (auto* stmt : *(node.getStmts()))
         {

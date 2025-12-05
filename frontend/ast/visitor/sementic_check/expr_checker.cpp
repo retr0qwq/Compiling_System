@@ -56,7 +56,7 @@ namespace FE::AST
             node.attr.val.value.type = attr->type;
             node.attr.val.isConstexpr = (attr->isConstDecl && allConst);
             // 常量折叠
-            if (node.attr.val.isConstexpr && !attr->initList.empty()) {
+            if (allConst && !attr->initList.empty()) {
                 // 计算线性偏移 pos
                 int pos = 0;
                 for (size_t i = 0; i < dimCount; ++i) {
@@ -79,19 +79,13 @@ namespace FE::AST
             }
         } else {
 
-            Type* baseType = attr->type;
-            for (size_t i = 0; i < dimleft; ++i) {
-                Type* t = attr->type;
-                for (size_t i = 0; i < dimleft; ++i) {
-                    t = tf.getPtrType(t);
-                }
-                node.attr.val.value.type = t;
-                node.attr.val.isConstexpr = false;
+            Type* t = attr->type;
+            for (size_t j = 0; j < dimleft; ++j) {
+                t = tf.getPtrType(t);
             }
-            node.attr.val.value.type = baseType;
+            node.attr.val.value.type = t;
+            node.attr.val.isConstexpr = false;
         }
-
-        
         return true;
     }
 
@@ -109,16 +103,21 @@ namespace FE::AST
         // TODO(Lab3-1): 实现一元表达式的语义检查
         // 访问子表达式，检查操作数类型，调用类型推断函数
         //TODO("Lab3-1: Implement UnaryExpr semantic checking");
+        
         bool res = apply(*this, *(node.expr));
         if(!res) return false;
         Type* expr_type = node.expr->attr.val.value.type;
+        if(expr_type->getBaseType() == Type_t::VOID) {
+            errors.emplace_back("Error: Void type cannot be used in unary expressions." + std::string("at line ") + std::to_string(node.line_num));
+            return false;
+        }
         if(node.op == Operator::NOT) {
             if(expr_type->getBaseType() != Type_t::BOOL) {
                 errors.emplace_back("Error: Invalid operand type for '!' operator."  + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
-        if (node.op != Operator::SUB && node.op != Operator::NOT) {
+        if (node.op != Operator::SUB && node.op != Operator::NOT&& node.op != Operator::ADD) {
         errors.emplace_back("Error: Unsupported unary operator."  + std::string("at line ") + std::to_string(node.line_num));
         return false;
         }
@@ -144,7 +143,10 @@ namespace FE::AST
         Type* rhsType = node.rhs->attr.val.value.type;
         Type_t lhsBase = lhsType->getBaseType();
         Type_t rhsBase = rhsType->getBaseType();
-
+        if (lhsBase == Type_t::VOID || rhsBase == Type_t::VOID) {
+            errors.emplace_back("Error: Void type cannot be used in binary expressions." + std::string("at line ") + std::to_string(node.line_num));
+            return false;
+        }
         //检查运算符类型合法性
         switch (node.op) {
             case Operator::ADD:
@@ -152,15 +154,6 @@ namespace FE::AST
             case Operator::MUL:
             case Operator::DIV:
             case Operator::MOD:
-                // 数值运算要求操作数为 INT/LL/FLOAT
-                if ((lhsBase == Type_t::BOOL) && (rhsBase == Type_t::BOOL)) {
-                    // bool + bool → promote -> int（SysY 允许）
-                    break;
-                }
-                if (lhsBase == Type_t::BOOL || rhsBase == Type_t::BOOL) {
-                    errors.emplace_back("Error: arithmetic operator cannot apply to boolean type."  + std::string("at line ") + std::to_string(node.line_num));
-                    return false;
-                }
                 if (node.op == Operator::MOD &&
                     (lhsBase == Type_t::FLOAT || rhsBase == Type_t::FLOAT)) {
                     errors.emplace_back("Error: '%' operator cannot be applied to float type. at line " + std::to_string(node.line_num));
@@ -177,15 +170,7 @@ namespace FE::AST
                 }
                 break;
 
-            case Operator::AND:
-            case Operator::OR:
-                // 逻辑运算要求布尔类型
-                if (lhsBase != Type_t::BOOL || rhsBase != Type_t::BOOL) {
-                    errors.emplace_back("Error: logical operator requires boolean operands." + std::string("at line ") + std::to_string(node.line_num));
-                    return false;
-                }
-                break;
-
+            case Operator::AND: case Operator::OR:
             case Operator::GT: case Operator::GE:
             case Operator::LT: case Operator::LE:
             case Operator::EQ: case Operator::NEQ:
@@ -255,7 +240,11 @@ namespace FE::AST
         }
         FuncDeclStmt* funcDef = funcDecls[node.func];
         auto &params = *(funcDef->params);
-        size_t paramCount = params.size();
+        size_t paramCount=0;
+        if (funcDef->params!= nullptr) {
+            paramCount = funcDef->params->size();
+        }
+
         size_t argCount = node.args ? node.args->size() : 0;
 
         if (argCount != paramCount) {
@@ -263,38 +252,73 @@ namespace FE::AST
         return false;
         }
         for (size_t i = 0; i < argCount; i++) {
+
             ExprNode* arg = (*node.args)[i];
             if (!apply(*this, *arg))
                 return false;
-            Type* lhsType = arg->attr.val.value.type;
-            Type* rhsType = params[i]->type; 
 
-            Type_t lhsBase = lhsType->getBaseType();
-            Type_t rhsBase = rhsType->getBaseType();
-            if (lhsType->getTypeGroup() == TypeGroup::POINTER ||rhsType->getTypeGroup() == TypeGroup::POINTER) {
-                if (lhsBase != rhsBase||(lhsType->getTypeGroup() != rhsType->getTypeGroup())) {
+            Type* argType   = arg->attr.val.value.type;
+            Type* paramType = params[i]->type;
+            Type_t lhsBase = argType->getBaseType();
+            Type_t rhsBase = paramType->getBaseType();
+            TypeFactory& tf = TypeFactory::getInstance();
+            bool argIsArray = false;
+
+                if (auto lv = dynamic_cast<LeftValExpr*>(arg)) {
+                    VarAttr* va = symTable.getSymbol_impl(lv->entry);
+                    if (va && !va->arrayDims.empty()) {
+                        argIsArray = true;
+                    }
+                }
+
+            if (argIsArray) {
+                Type* base = tf.getBasicType(argType->getBaseType()); 
+                argType = tf.getPtrType(base);
+            }
+
+
+            // === 2. 形参数组退化（SysY/C: int a[] → int*）===
+            if (params[i]->dims && !params[i]->dims->empty()) {
+                Type* base = tf.getBasicType(paramType->getBaseType());
+                paramType = tf.getPtrType(base);
+            }
+
+            // === 3. 若任一为指针，则走指针匹配规则 ===
+            bool argIsPtr   = (argType->getTypeGroup()   == TypeGroup::POINTER);
+            bool paramIsPtr = (paramType->getTypeGroup() == TypeGroup::POINTER);
+
+            if (argIsPtr || paramIsPtr) {
+
+                // baseType 必须一致
+                if (argType->getBaseType() != paramType->getBaseType()) {
                     errors.emplace_back(
-                        "Error: Type mismatch in initialization of '" +funcDef->entry->getName() + "' at line " +std::to_string(node.line_num)
+                        "Error: Type mismatch in parameter " +
+                        std::to_string(i) + " of function '" +
+                        funcDef->entry->getName() + "' at line " +
+                        std::to_string(node.line_num)
                     );
                     return false;
                 }
-            }
-            else {
-                bool lhsIsNum = (lhsBase == Type_t::BOOL || lhsBase == Type_t::INT ||lhsBase == Type_t::LL   || lhsBase == Type_t::FLOAT);
-                bool rhsIsNum = (rhsBase == Type_t::BOOL || rhsBase == Type_t::INT || rhsBase == Type_t::LL   || rhsBase == Type_t::FLOAT);
 
-                if (!(lhsIsNum && rhsIsNum)) {
-                    errors.emplace_back("Error: Type mismatch in initialization of '" +funcDef->entry->getName() + "' at line " + std::to_string(node.line_num));
-                    return false;
-                }
+                continue;  // 指针匹配正确结束本参数检查
             }
-            node.attr.val.value.type = funcDef->retType;
-            return true;
+            bool lhsIsNum = (lhsBase == Type_t::BOOL || lhsBase == Type_t::INT ||
+                         lhsBase == Type_t::LL   || lhsBase == Type_t::FLOAT);
+
+            bool rhsIsNum = (rhsBase == Type_t::BOOL || rhsBase == Type_t::INT ||
+                         rhsBase == Type_t::LL   || rhsBase == Type_t::FLOAT);
+            if (!(lhsIsNum && rhsIsNum)) {
+            errors.emplace_back(
+                "Error: Type mismatch in parameter " +
+                std::to_string(i) + " of function '" +
+                funcDef->entry->getName() + "' at line " +
+                std::to_string(node.line_num));
+            return false;
+            }
         }
 
-        // 5. 设置返回类型
+        node.attr.val.isConstexpr = false;
         node.attr.val.value.type = funcDef->retType;
-
         return true;
     }
 
