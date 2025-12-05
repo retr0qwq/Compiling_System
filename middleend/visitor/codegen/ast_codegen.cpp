@@ -51,9 +51,45 @@ namespace ME
     void ASTCodeGen::handleGlobalVarDecl(FE::AST::VarDeclStmt* decls, Module* m)
     {
         // TODO(Lab 3-2): 生成全局变量声明 IR（支持标量与数组的初值）
-        (void)decls;
-        (void)m;
-        TODO("Lab3-2: Implement global var declaration IR generation");
+        // 为每个 VarDeclarator 生成 GlbVarDeclInst 并加入 Module->globalVars
+        for (auto* decl : decls->decls)
+        {
+            FE::Sym::Entry* entry = decl->entry;
+            std::string name = entry->getName();
+
+            FE::AST::VarAttr attr = glbSymbols.at(entry);
+            DataType t = convert(attr.type);
+
+            if (decl->initializer == nullptr)
+            {
+                // int 全局变量默认初始化为 0
+                m->globals.emplace_back(new GlobalVarInst(t, name, getImmeI32Operand(0)));
+            }
+            else
+            {
+                // 计算初始值
+                apply(*this, *decl->initializer, m);
+                size_t initReg = getMaxReg();
+
+                Operand* initOp = nullptr;
+                DataType fromT = convert(decl->initializer->attr.val.value.type);
+
+                if (fromT == DataType::I32)
+                {
+                    initOp = getImmeI32Operand(decl->initializer->attr.val.value.getInt());
+                }
+                else if (fromT == DataType::F32)
+                {
+                    initOp = getImmeF32Operand(decl->initializer->attr.val.value.getFloat());
+                }
+                else
+                    ERROR("Unsupported global initializer type");
+
+                m->globals.emplace_back(
+                    new GlobalVarInst(t, name, initOp)
+                );
+            }
+        }
     }
 
     void ASTCodeGen::visit(FE::AST::Root& node, Module* m)
@@ -62,10 +98,18 @@ namespace ME
         libFuncRegister(m);
 
         // TODO(Lab 3-2): 生成模块级 IR
-        // 处理顶层语句：全局变量声明、函数定义等
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement Root IR generation");
+        // 遍历所有顶层语句
+        for (FE::AST::StmtNode* stmt : node.stmts)
+        {
+            if (auto* decl = dynamic_cast<FE::AST::VarDeclStmt*>(stmt))
+            {
+                handleGlobalVarDecl(decl, m);
+            }
+            else
+            {
+                apply(*this, *stmt, m);
+            }
+        }
     }
 
     LoadInst* ASTCodeGen::createLoadInst(DataType t, Operand* ptr, size_t resReg)
