@@ -43,6 +43,88 @@ namespace ME
         (void)node;
         (void)m;
         TODO("Lab3-2: Implement UnaryExpr IR generation");
+        apply(*this, node.expr, m);
+        size_t operandReg = getMaxReg();
+        auto op = node.op;
+        FE::AST::Type* tp = node.expr->attr.val.value.type;
+        DataType dt = convert(tp);
+        size_t dstReg = getNewRegId();
+        // 根据操作符判断
+        switch (op)
+        {
+            case FE::AST::Operator::SUB:
+            {
+                if (dt == DataType::I32)
+                {
+                    insert(createArithmeticI32Inst_ImmeLeft(Operator::SUB, 0, operandReg, dstReg));
+                }
+                else if (dt == DataType::F32)
+                {
+                    insert(createArithmeticF32Inst_ImmeLeft(Operator::FSUB, 0.0f, operandReg, dstReg));
+                }
+                else if (dt == DataType::I1)
+                {
+                    auto convInsts = createTypeConvertInst(DataType::I1, DataType::I32, operandReg);
+                    for (auto* inst : convInsts)
+                        insert(inst);
+                    operandReg = getMaxReg(); 
+                    insert(createArithmeticI32Inst_ImmeLeft(Operator::SUB, 0, operandReg, dstReg));
+                }
+                else
+                {
+                    ERROR("Unsupported type for NEG operator");
+                }
+                break;
+            }
+            case FE::AST::Operator::NOT:
+            {
+                if (dt == DataType::I1)
+                {
+                    insert(createIcmpInst_ImmeRight(ICmpOp::EQ, operandReg, 0, dstReg));
+                }
+                else if (dt == DataType::I32)
+                {
+                    insert(createIcmpInst_ImmeRight(ICmpOp::EQ, operandReg, 0, dstReg));
+                }
+                else if (dt == DataType::F32)
+                {
+                    // 比较是否等于0.0f
+                    insert(createFcmpInst_ImmeRight(FCmpOp::OEQ, operandReg, 0.0f, dstReg));
+                }
+                else
+                {
+                    ERROR("Unsupported type for NOT operator");
+                }
+                break;
+            }
+            case FE::AST::Operator::ADD:
+                // 正号，直接传递操作数
+                {
+                    if (dt == DataType::I32)
+                    {
+                        insert(createArithmeticI32Inst_ImmeLeft(Operator::ADD, 0, operandReg, dstReg));
+                    }
+                    else if (dt == DataType::F32)
+                    {
+                        insert(createArithmeticF32Inst_ImmeLeft(Operator::FADD, 0.0f, operandReg, dstReg));
+                    }
+                    else if (dt == DataType::I1)
+                    {
+                    auto convInsts = createTypeConvertInst(DataType::I1, DataType::I32, operandReg);
+                    for (auto* inst : convInsts)
+                        insert(inst);
+                    operandReg = getMaxReg(); 
+                    insert(createArithmeticI32Inst_ImmeLeft(Operator::ADD, 0, operandReg, dstReg));
+                    }
+                    else
+                    {
+                        ERROR("Unsupported type for POS operator");
+                    }
+                }
+                break;
+            default:
+                ERROR("Unsupported unary operator");
+        }
     }
 
     void ASTCodeGen::handleAssign(FE::AST::LeftValExpr& lhs, FE::AST::ExprNode& rhs, Module* m)
