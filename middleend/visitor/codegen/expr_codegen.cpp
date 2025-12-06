@@ -1,5 +1,6 @@
 #include <middleend/visitor/codegen/ast_codegen.h>
-
+#include <middleend/visitor/codegen/type_convert.cpp>
+using namespace FE::AST;
 namespace ME
 {
     void ASTCodeGen::visit(FE::AST::LeftValExpr& node, Module* m)
@@ -9,6 +10,52 @@ namespace ME
         (void)node;
         (void)m;
         TODO("Lab3-2: Implement LeftValExpr IR generation");
+        FE::AST::VarAttr* attr = nullptr;
+        size_t varReg = static_cast<size_t>(-1);
+        // 若为全局变量
+        if (glbSymbols.find(node.entry) != glbSymbols.end())
+        {
+            attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
+            varReg = name2reg.getReg(node.entry);
+            Operand* gptr = new Operand(node.entry->getName());
+        }
+        else if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
+        {
+            attr   = &(reg2attr[name2reg.getReg(node.entry)]);
+            varReg = name2reg.getReg(node.entry);
+        }
+
+        else
+        {
+            ERROR("Variable not found in symbol tables");
+        }
+        if (!node.indices || node.indices->empty())
+        {
+            // 标量变量，直接取地址
+            lval2ptr[&node] = getRegOperand(varReg);
+        }
+        else
+        {
+            /* 数组变量，计算偏移后取地址
+            std::vector<size_t> indexRegs;
+            // 计算每个下标表达式
+            for (auto* indexExpr : *(node.indices))
+            {
+                apply(*this, *indexExpr, m);
+                indexRegs.push_back(getMaxReg());
+            }
+            size_t ptrReg = getNewRegId();
+            auto gepInst  = createGEPInst(convert(attr->type), varReg, indexRegs, ptrReg);
+            insert(gepInst);
+            lval2ptr[&node] = createOperandPtr(ptrReg);
+            */
+        }
+            
+        if (!node.isLval){
+            size_t resReg = getNewRegId();
+            auto loadInst = createLoadInst(convert(attr->type), lval2ptr[&node], resReg);
+             insert(loadInst);
+        }
     }
 
     void ASTCodeGen::visit(FE::AST::LiteralExpr& node, Module* m)
@@ -40,9 +87,8 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::UnaryExpr& node, Module* m)
     {
         // TODO(Lab 3-2): 生成一元运算的 IR（访问操作数、必要的类型转换、发出运算指令）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement UnaryExpr IR generation");
+        // TODO("Lab3-2: Implement UnaryExpr IR generation");
+        /*
         apply(*this, node.expr, m);
         size_t operandReg = getMaxReg();
         auto op = node.op;
@@ -67,12 +113,12 @@ namespace ME
                     auto convInsts = createTypeConvertInst(DataType::I1, DataType::I32, operandReg);
                     for (auto* inst : convInsts)
                         insert(inst);
-                    operandReg = getMaxReg(); 
+                    operandReg = getMaxReg();
                     insert(createArithmeticI32Inst_ImmeLeft(Operator::SUB, 0, operandReg, dstReg));
                 }
                 else
                 {
-                    ERROR("Unsupported type for NEG operator");
+                    ERROR("Unsupported type for SUB operator");
                 }
                 break;
             }
@@ -125,42 +171,142 @@ namespace ME
             default:
                 ERROR("Unsupported unary operator");
         }
+        */
+        handleUnaryCalc(*node.expr, node.op, curBlock, m);
     }
 
     void ASTCodeGen::handleAssign(FE::AST::LeftValExpr& lhs, FE::AST::ExprNode& rhs, Module* m)
     {
         // TODO(Lab 3-2): 生成赋值语句的 IR（计算右值、类型转换、store 到左值地址）
-        (void)lhs;
-        (void)rhs;
-        (void)m;
-        TODO("Lab3-2: Implement assignment IR generation");
+        // TODO("Lab3-2: Implement assignment IR generation");
+        lhs.isLval = true;
+        apply(*this, lhs, m);
+        size_t lhsReg= name2reg.getReg(lhs.entry);
+        DataType lhsType = convert( lhs.attr.val.value.type);
+        apply(*this, rhs, m);
+        size_t rhsReg= getMaxReg();
+        DataType rhsType = convert( rhs.attr.val.value.type);
+        if (lhsType != rhsType) {
+            auto convInsts = createTypeConvertInst(rhsType, lhsType, rhsReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            rhsReg = getMaxReg();
+        }
+        Operand* lshPtr = lval2ptr[&lhs];
+        insert( createStoreInst(lhsType, rhsReg, lshPtr));
+        lhs.isLval = false;
     }
     void ASTCodeGen::handleLogicalAnd(
         FE::AST::BinaryExpr& node, FE::AST::ExprNode& lhs, FE::AST::ExprNode& rhs, Module* m)
     {
         // TODO(Lab 3-2): 生成短路与的基本块与条件分支
-        (void)node;
-        (void)lhs;
-        (void)rhs;
-        (void)m;
-        TODO("Lab3-2: Implement logical AND codegen");
+        // TODO("Lab3-2: Implement logical AND codegen");
+                size_t parenttrue = node.trueTar;
+        size_t parentfalse = node.falseTar;
+        apply(*this, lhs, m);
+        size_t lhsReg = getMaxReg();
+        DataType lhsType = convert(lhs.attr.val.value.type);
+        ASSERT(lhsType == DataType::I1 || lhsType == DataType::I32);  // 布尔/整型
+
+        // 如果 lhs 不是 i1，需要转换
+        if (lhsType != DataType::I1) {
+            auto convInsts = createTypeConvertInst(lhsType, DataType::I1, lhsReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            lhsReg = getMaxReg();
+        }
+        Block* rhsBlock = createBlock();
+        Block* cur = curBlock;
+        lhs.trueTar = rhsBlock->blockId;
+        lhs.falseTar = parentfalse;
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
+        insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
+        // 进入 rhsBlock
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
+        enterBlock(rhsBlock);
+        apply(*this, rhs, m);
+        size_t rhsReg = getMaxReg();
+        DataType rhsType = convert(rhs.attr.val.value.type);
+        if (rhsType != DataType::I1) {
+            auto convInsts = createTypeConvertInst(rhsType, DataType::I1, rhsReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            rhsReg = getMaxReg();
+        }
+        insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
+        // 回到原来的块
+        enterBlock(cur);
     }
     void ASTCodeGen::handleLogicalOr(
         FE::AST::BinaryExpr& node, FE::AST::ExprNode& lhs, FE::AST::ExprNode& rhs, Module* m)
     {
         // TODO(Lab 3-2): 生成短路或的基本块与条件分支
-        (void)node;
-        (void)lhs;
-        (void)rhs;
-        (void)m;
-        TODO("Lab3-2: Implement logical OR codegen");
+        //TODO("Lab3-2: Implement logical OR codegen");
+        size_t parenttrue = node.trueTar;
+        size_t parentfalse = node.falseTar;
+        apply(*this, lhs, m);
+        size_t lhsReg = getMaxReg();
+        DataType lhsType = convert(lhs.attr.val.value.type);
+        ASSERT(lhsType == DataType::I1 || lhsType == DataType::I32);  // 布尔/整型
+
+        // 如果 lhs 不是 i1，需要转换
+        if (lhsType != DataType::I1) {
+            auto convInsts = createTypeConvertInst(lhsType, DataType::I1, lhsReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            lhsReg = getMaxReg();
+        }
+        Block* rhsBlock = createBlock();
+        Block* cur = curBlock;
+        lhs.trueTar = parenttrue;
+        lhs.falseTar = rhsBlock->blockId; 
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
+        insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
+        // 进入 rhsBlock
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
+        enterBlock(rhsBlock);
+        apply(*this, rhs, m);
+        size_t rhsReg = getMaxReg();
+        DataType rhsType = convert(rhs.attr.val.value.type);
+        if (rhsType != DataType::I1) {
+            auto convInsts = createTypeConvertInst(rhsType, DataType::I1, rhsReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            rhsReg = getMaxReg();
+        }
+        insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
+        // 回到原来的块
+        enterBlock(cur);
     }
     void ASTCodeGen::visit(FE::AST::BinaryExpr& node, Module* m)
     {
         // TODO(Lab 3-2): 生成二元表达式 IR（含赋值、逻辑与/或、算术/比较）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement BinaryExpr IR generation");
+        // TODO("Lab3-2: Implement BinaryExpr IR generation");
+        auto op = node.op;
+        if (op == FE::AST::Operator::AND)
+        {
+            handleLogicalAnd(node, *node.lhs, *node.rhs, m);
+        }
+        else if (op == FE::AST::Operator::OR)
+        {
+            handleLogicalOr(node, *node.lhs, *node.rhs, m);
+        }
+        else if (op == FE::AST::Operator::ASSIGN)
+        {
+            // 赋值表达式特殊处理
+            LeftValExpr* lval = dynamic_cast<LeftValExpr*>(node.lhs);
+            if (!lval)
+            {
+                ERROR("Left-hand side of assignment must be a left value");
+            }
+            handleAssign(*lval, *node.rhs, m);
+        }
+        else
+        {
+            handleBinaryCalc(*node.lhs, *node.rhs, op, curBlock, m);
+        }
     }
 
     void ASTCodeGen::visit(FE::AST::CallExpr& node, Module* m)
@@ -174,8 +320,11 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::CommaExpr& node, Module* m)
     {
         // TODO(Lab 3-2): 依序生成逗号表达式每个子表达式的 IR
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement CommaExpr IR generation");
+        // TODO("Lab3-2: Implement CommaExpr IR generation");
+        ASSERT(node.exprs && "Comma expression list is null");
+        for (auto* expr : *(node.exprs))
+        {
+            apply(*this, *expr, m);
+        }
     }
 }  // namespace ME

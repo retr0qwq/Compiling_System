@@ -77,7 +77,7 @@ namespace ME
 
           public:
             void   addSymbol(FE::Sym::Entry* entry, size_t reg) { curScope->sym2Reg[entry] = reg; }
-            size_t getReg(FE::Sym::Entry* entry)
+            size_t  getReg(FE::Sym::Entry* entry)
             {
                 Scope* scope = curScope;
                 while (scope)
