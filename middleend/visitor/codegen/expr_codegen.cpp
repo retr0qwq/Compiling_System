@@ -8,27 +8,28 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成左值表达式的取址/取值 IR
         // 查找变量位置（全局或局部），处理数组下标/GEP，必要时发出load
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement LeftValExpr IR generation");
+        // TODO("Lab3-2: Implement LeftValExpr IR generation");
         FE::AST::VarAttr* attr = nullptr;
         size_t varReg = static_cast<size_t>(-1);
+        Operand* ptrOp = nullptr;
         // 若为全局变量
         if (glbSymbols.find(node.entry) != glbSymbols.end())
         {
             attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
-            varReg = name2reg.getReg(node.entry);
+            ptrOp = getGlobalOperand(node.entry->getName());
         }
         else if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
         {
             attr   = &(reg2attr[name2reg.getReg(node.entry)]);
             varReg = name2reg.getReg(node.entry);
+            lval2ptr[&node] = getRegOperand(varReg);
+            ptrOp = lval2ptr[&node];
         }
-
         else
         {
             ERROR("Variable not found in symbol tables");
         }
+        /*
         if (!node.indices || node.indices->empty())
         {
             // 标量变量，直接取地址
@@ -36,7 +37,7 @@ namespace ME
         }
         else
         {
-            /* 数组变量，计算偏移后取地址
+             数组变量，计算偏移后取地址
             std::vector<size_t> indexRegs;
             // 计算每个下标表达式
             for (auto* indexExpr : *(node.indices))
@@ -48,12 +49,12 @@ namespace ME
             auto gepInst  = createGEPInst(convert(attr->type), varReg, indexRegs, ptrReg);
             insert(gepInst);
             lval2ptr[&node] = createOperandPtr(ptrReg);
-            */
-        }
             
+        }
+         */ 
         if (!node.isLval){
             size_t resReg = getNewRegId();
-            auto loadInst = createLoadInst(convert(attr->type), lval2ptr[&node], resReg);
+            auto loadInst = createLoadInst(convert(attr->type), ptrOp, resReg);
              insert(loadInst);
         }
     }
