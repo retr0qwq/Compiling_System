@@ -1,6 +1,5 @@
 #include <middleend/visitor/codegen/ast_codegen.h>
-#include <middleend/visitor/codegen/type_convert.cpp>
-#include <middleend\module\ir_instruction.h>
+#include <middleend/module/ir_instruction.h>
 using namespace FE::AST;
 namespace ME
 {
@@ -182,7 +181,6 @@ namespace ME
         // TODO("Lab3-2: Implement assignment IR generation");
         lhs.isLval = true;
         apply(*this, lhs, m);
-        size_t lhsReg= name2reg.getReg(lhs.entry);
         DataType lhsType = convert( lhs.attr.val.value.type);
         apply(*this, rhs, m);
         size_t rhsReg= getMaxReg();

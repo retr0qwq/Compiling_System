@@ -195,7 +195,6 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成 for 循环 IR（init/cond/body/step 基本块与循环标签）
         // TODO("Lab3-2: Implement ForStmt IR generation");
-        Block* initBlock = curBlock;
         Block* condBlock = createBlock();
         Block* bodyBlock = createBlock();
         Block* stepBlock = createBlock();
