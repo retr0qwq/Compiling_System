@@ -27,34 +27,26 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::VarDeclaration& node, Module* m)
     {
         // TODO(Lab 3-2): 生成变量声明 IR（alloca、数组零初始化、可选初始化表达式）
-
         DataType t = convert(node.type);
-
-        for (auto* decl : node.decls)
+        for (auto* decl : *(node.decls))
         {
-            FE::Sym::Entry* entry = decl->entry;
-            FE::AST::VarAttr attr = reg2attr[getNewRegId()]; 
+            auto* lval = dynamic_cast<FE::AST::LeftValExpr*>(decl->lval);
+            FE::Sym::Entry* entry = lval->entry;
 
             size_t ptrReg = getNewRegId();
-            AllocaInst* alloc = createAllocaInst(t, ptrReg);
-            insert(alloc);
-
+            insert(createAllocaInst(t, ptrReg));
             name2reg.addSymbol(entry, ptrReg);
+            reg2attr[ptrReg] = FE::AST::VarAttr{node.type};
 
-            if (decl->initializer)
+            if (decl->init)
             {
-                apply(*this, *decl->initializer, m);
-                size_t valReg = getMaxReg();
-
-                DataType fromT = convert(decl->initializer->attr.val.value.type);
-                if (fromT != t)
+                if (auto* initDecl = dynamic_cast<FE::AST::Initializer*>(decl->init)) 
                 {
-                    auto convInsts = createTypeConvertInst(fromT, t, valReg);
-                    for (auto* inst : convInsts)
-                        insert(inst);
-                    valReg = getMaxReg();
+                    handleAssign(*lval, *initDecl->init_val, m);
+                } else 
+                {
+                    ERROR("Unsupported initializer node type");
                 }
-                insert(createStoreInst(t, valReg, getRegOperand(ptrReg)));
             }
         }
     }

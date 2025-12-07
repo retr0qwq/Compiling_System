@@ -52,43 +52,50 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成全局变量声明 IR（支持标量与数组的初值）
         // 为每个 VarDeclarator 生成 GlbVarDeclInst 并加入 Module->globalVars
-        for (auto* decl : decls->decls)
+        auto* vardecl = decls->decl;
+        for (auto* decl : *(vardecl->decls))
         {
-            FE::Sym::Entry* entry = decl->entry;
+            auto* lval = dynamic_cast<FE::AST::LeftValExpr*>(decl->lval);
+            FE::Sym::Entry* entry = lval->entry;
             std::string name = entry->getName();
 
             FE::AST::VarAttr attr = glbSymbols.at(entry);
             DataType t = convert(attr.type);
 
-            if (decl->initializer == nullptr)
+            if (!decl->init)
             {
-                // int 全局变量默认初始化为 0
-                m->globals.emplace_back(new GlobalVarInst(t, name, getImmeI32Operand(0)));
-            }
-            else
-            {
-                // 计算初始值
-                apply(*this, *decl->initializer, m);
-                size_t initReg = getMaxReg();
-
-                Operand* initOp = nullptr;
-                DataType fromT = convert(decl->initializer->attr.val.value.type);
-
-                if (fromT == DataType::I32)
+                if (t == DataType::I32 || t == DataType::I1)
                 {
-                    initOp = getImmeI32Operand(decl->initializer->attr.val.value.getInt());
+                    m->globalVars.emplace_back(new GlbVarDeclInst(t, name, getImmeI32Operand(0)));
                 }
-                else if (fromT == DataType::F32)
+                else if (t == DataType::F32)
                 {
-                    initOp = getImmeF32Operand(decl->initializer->attr.val.value.getFloat());
+                    m->globalVars.emplace_back(new GlbVarDeclInst(t, name, getImmeF32Operand(0.0f)));
                 }
                 else
                     ERROR("Unsupported global initializer type");
-
-                m->globals.emplace_back(
-                    new GlobalVarInst(t, name, initOp)
-                );
+                continue;
             }
+
+            auto* initDecl = dynamic_cast<FE::AST::Initializer*>(decl->init);
+            Operand* initOp = nullptr;
+
+            if (t == DataType::I32)
+            {
+                initOp = getImmeI32Operand(initDecl->init_val->attr.val.getInt());
+            }
+            else if (t == DataType::I1)
+            {
+                initOp = getImmeI32Operand(initDecl->init_val->attr.val.getBool());
+            }
+            else if (t == DataType::F32)
+            {
+                initOp = getImmeF32Operand(initDecl->init_val->attr.val.getFloat());
+            }
+            else
+                ERROR("Unsupported global initializer type");
+
+            m->globalVars.emplace_back(new GlbVarDeclInst(t, name, initOp));
         }
     }
 
