@@ -77,7 +77,7 @@ namespace ME
 
           public:
             void   addSymbol(FE::Sym::Entry* entry, size_t reg) { curScope->sym2Reg[entry] = reg; }
-            size_t getReg(FE::Sym::Entry* entry)
+            size_t  getReg(FE::Sym::Entry* entry)
             {
                 Scope* scope = curScope;
                 while (scope)
@@ -100,7 +100,16 @@ namespace ME
         std::map<size_t, FE::AST::VarAttr>        reg2attr;
         std::map<size_t, bool>                    paramPtrTab;  // if the i-th param is a pointer or not
         std::map<FE::AST::LeftValExpr*, Operand*> lval2ptr;
+        struct LoopContext
+        {
+            size_t condLabel;
+            size_t endLabel;
 
+            LoopContext(size_t condLabel = static_cast<size_t>(-1), size_t endLabel = static_cast<size_t>(-1))
+                : condLabel(condLabel), endLabel(endLabel)
+            {}
+        };
+        std::vector<LoopContext> loopStack;
       public:
         ASTCodeGen(const std::map<FE::Sym::Entry*, FE::AST::VarAttr>& glbSymbols,
             const std::map<FE::Sym::Entry*, FE::AST::FuncDeclStmt*>&  funcDecls)
