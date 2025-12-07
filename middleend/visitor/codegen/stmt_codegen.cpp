@@ -28,9 +28,12 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::BlockStmt& node, Module* m)
     {
         // TODO(Lab 3-2): 生成语句块 IR（作用域管理，顺序生成子语句）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement BlockStmt IR generation");
+        // TODO("Lab3-2: Implement BlockStmt IR generation");
+        name2reg.enterScope();
+        for (auto* stmt : *(node.stmts)) {
+            apply(*this, *stmt, m);
+        }
+        name2reg.exitScope();
     }
 
     void ASTCodeGen::visit(FE::AST::ReturnStmt& node, Module* m)
@@ -39,22 +42,125 @@ namespace ME
         (void)node;
         (void)m;
         TODO("Lab3-2: Implement ReturnStmt IR generation");
+        DataType retType = curFunc->funcDef->retType;  
+        if (!node.retExpr)
+        {
+            insert(createRetInst());
+            return;
+        }
+        apply(*this, *node.retExpr, m);
+        size_t exprReg = getMaxReg();   // 表达式结果寄存器
+        DataType exprType = convert(node.retExpr->attr.val.value.type);
+        if (exprType != retType)
+        {
+            auto convs = createTypeConvertInst(exprType, retType, exprReg);
+            for (auto* inst : convs)
+                insert(inst);
+            exprReg = getMaxReg();
+        }
+        if (retType == DataType::I32 || retType == DataType::I1|| retType == DataType::F32)
+        {
+            insert(createRetInst(retType, exprReg));
+        }
+        else if (retType == DataType::VOID)
+        {
+            ERROR("Void function should not return a value");
+        }
+        else
+        {
+            ERROR("Unsupported return type");
+        }   
     }
 
     void ASTCodeGen::visit(FE::AST::WhileStmt& node, Module* m)
     {
         // TODO(Lab 3-2): 生成 while 循环 IR（条件块、循环体与结束块、循环标签）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement WhileStmt IR generation");
+        // TODO("Lab3-2: Implement WhileStmt IR generation");
+        Block* condBlock = createBlock();
+        Block* bodyBlock = createBlock();
+        Block* endBlock  = createBlock();
+
+        // 首先跳到 cond
+        insert(createBranchInst(condBlock->blockId));
+
+        // 将 condBlock 注册进函数
+        curFunc->blocks[condBlock->blockId] = condBlock;
+        curFunc->blocks[bodyBlock->blockId] = bodyBlock;
+        curFunc->blocks[endBlock->blockId]  = endBlock;
+        loopStack.push_back(LoopContext{condBlock->blockId, endBlock->blockId });
+
+        // === 生成条件检查 ===
+        enterBlock(condBlock);
+
+        apply(*this, *node.cond, m);
+        size_t condReg = getMaxReg();
+
+        DataType condType = convert(node.cond->attr.val.value.type);
+        if (condType != DataType::I1)
+        {
+            auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
+            for (auto* inst : convInsts) insert(inst);
+            condReg = getMaxReg();
+        }
+        insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
+
+        enterBlock(bodyBlock);
+        apply(*this, *node.body, m);
+
+        if (!curBlock->hasTerminated())
+            insert(createBranchInst(condBlock->blockId));
+        enterBlock(endBlock);
+        loopStack.pop_back();
     }
 
     void ASTCodeGen::visit(FE::AST::IfStmt& node, Module* m)
     {
         // TODO(Lab 3-2): 生成 if/else IR（then/else/end 基本块与条件分支）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement IfStmt IR generation");
+        // TODO("Lab3-2: Implement IfStmt IR generation");
+        apply(*this, *node.cond, m);
+        size_t condReg = getMaxReg();
+        DataType condType = convert(node.cond->attr.val.value.type);
+        if (condType != DataType::I1)
+        {
+            auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
+            for (auto* inst : convInsts)
+                insert(inst);
+            condReg = getMaxReg();
+        }
+        Block* thenBlock = createBlock();
+        Block* elseBlock = nullptr;
+        Block* endBlock  = createBlock();
+
+        if (node.elseStmt)
+            elseBlock = createBlock();
+
+        // 生成条件分支指令
+        if (elseBlock)
+            insert(createBranchInst(condReg, thenBlock->blockId, elseBlock->blockId));
+        else
+            insert(createBranchInst(condReg, thenBlock->blockId, endBlock->blockId));
+
+        // 把 block 注册到函数
+        curFunc->blocks[thenBlock->blockId] = thenBlock;
+        if (elseBlock) curFunc->blocks[elseBlock->blockId] = elseBlock;
+        curFunc->blocks[endBlock->blockId] = endBlock;
+        // then分支
+        enterBlock(thenBlock);
+        apply(*this, *node.thenStmt, m);
+
+        if (!curBlock->hasTerminated())
+            insert(createBranchInst(endBlock->blockId));
+
+        // else 分支
+        if (elseBlock)
+        {
+            enterBlock(elseBlock);
+            apply(*this, *node.elseStmt, m);
+
+            if (!curBlock->hasTerminated())
+                insert(createBranchInst(endBlock->blockId));
+        }
+        enterBlock(endBlock);
     }
 
     void ASTCodeGen::visit(FE::AST::BreakStmt& node, Module* m)

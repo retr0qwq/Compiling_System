@@ -37,6 +37,15 @@ namespace ME
         void insertFront(Instruction* inst);
         void insertBack(Instruction* inst);
         void insert(Instruction* inst) { insertBack(inst); }
+        bool hasTerminated() const {
+          if (insts.empty()) return false;
+
+          Operator opc = insts.back()->opcode;
+
+          return opc == Operator::BR_COND|| opc == Operator::BR_UNCOND|| opc == Operator::RET;
+        }
+                
+
     };
 }  // namespace ME
 
