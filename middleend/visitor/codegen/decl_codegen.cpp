@@ -36,7 +36,9 @@ namespace ME
             size_t ptrReg = getNewRegId();
             insert(createAllocaInst(t, ptrReg));
             name2reg.addSymbol(entry, ptrReg);
+
             reg2attr[ptrReg] = FE::AST::VarAttr{node.type};
+            lval2ptr[lval] = getRegOperand(ptrReg);
 
             if (decl->init)
             {
