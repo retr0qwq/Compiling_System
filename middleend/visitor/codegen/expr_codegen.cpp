@@ -1,5 +1,6 @@
 #include <middleend/visitor/codegen/ast_codegen.h>
 #include <middleend/visitor/codegen/type_convert.cpp>
+#include <middleend\module\ir_instruction.h>
 using namespace FE::AST;
 namespace ME
 {
@@ -17,7 +18,6 @@ namespace ME
         {
             attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
             varReg = name2reg.getReg(node.entry);
-            Operand* gptr = new Operand(node.entry->getName());
         }
         else if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
         {
@@ -312,9 +312,33 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::CallExpr& node, Module* m)
     {
         // TODO(Lab 3-2): 生成函数调用 IR（准备参数、可选返回寄存器、发出call）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement CallExpr IR generation");
+        // TODO("Lab3-2: Implement CallExpr IR generation");
+        auto* funcDecl = funcDecls.at(node.func);
+        CallInst::argList args;
+        for (size_t i = 0; i < node.args->size(); i++)
+        {
+            auto* argExpr = node.args->at(i);
+            apply(*this, *argExpr, m);
+            size_t argReg = getMaxReg();
+            DataType argType = convert(argExpr->attr.val.value.type);
+            Type* paramType = funcDecl->params->at(i)->type;
+            DataType paramDT = convert(paramType);
+            if (argType != paramDT) {
+                auto convInsts = createTypeConvertInst(argType, paramDT, argReg);
+                for (auto* inst : convInsts) insert(inst);
+                argReg = getMaxReg();
+            }
+            args.push_back(CallInst::argPair(paramDT, getRegOperand(argReg)));
+        }
+        DataType retType = convert(funcDecl->retType);
+        if (retType == DataType::VOID) {
+            insert(createCallInst(retType, node.func->getName(), args));
+        } else {
+            size_t retReg = getNewRegId();
+            insert(createCallInst(retType, node.func->getName(), args, retReg));
+            // 保存返回值 VarAttr
+            reg2attr[retReg] = VarAttr{funcDecl->retType};
+        }
     }
 
     void ASTCodeGen::visit(FE::AST::CommaExpr& node, Module* m)
