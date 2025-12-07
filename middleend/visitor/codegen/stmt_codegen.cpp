@@ -107,7 +107,7 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成变量声明语句 IR（局部变量分配、初始化）
         if (!node.decl) return;
-        apply(*this, *node.decl, m)
+        apply(*this, *node.decl, m);
     }
 
     void ASTCodeGen::visit(FE::AST::BlockStmt& node, Module* m)
@@ -192,7 +192,7 @@ namespace ME
         enterBlock(bodyBlock);
         apply(*this, *node.body, m);
 
-        if (!curBlock->hasTerminated())
+        if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(condBlock->blockId));
         enterBlock(endBlock);
         loopStack.pop_back();
@@ -233,7 +233,7 @@ namespace ME
         enterBlock(thenBlock);
         apply(*this, *node.thenStmt, m);
 
-        if (!curBlock->hasTerminated())
+        if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(endBlock->blockId));
 
         // else 分支
@@ -242,7 +242,7 @@ namespace ME
             enterBlock(elseBlock);
             apply(*this, *node.elseStmt, m);
 
-            if (!curBlock->hasTerminated())
+            if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
                 insert(createBranchInst(endBlock->blockId));
         }
         enterBlock(endBlock);

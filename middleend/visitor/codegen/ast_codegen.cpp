@@ -106,7 +106,7 @@ namespace ME
 
         // TODO(Lab 3-2): 生成模块级 IR
         // 遍历所有顶层语句
-        for (FE::AST::StmtNode* stmt : node.stmts)
+        for (FE::AST::StmtNode* stmt : *node.getStmts())
         {
             if (auto* decl = dynamic_cast<FE::AST::VarDeclStmt*>(stmt))
             {
