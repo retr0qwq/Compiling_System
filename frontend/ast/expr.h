@@ -31,7 +31,7 @@ namespace FE::AST
     class LeftValExpr : public ExprNode
     {
       public:
-        bool                    isLval;
+        bool                    isLval=false;
         Entry*                  entry;
         std::vector<ExprNode*>* indices;
 

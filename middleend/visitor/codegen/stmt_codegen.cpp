@@ -174,7 +174,8 @@ namespace ME
 
         // === 生成条件检查 ===
         enterBlock(condBlock);
-
+        node.cond->trueTar = bodyBlock->blockId;
+        node.cond->falseTar = endBlock->blockId;
         apply(*this, *node.cond, m);
         size_t condReg = getMaxReg();
 
@@ -200,6 +201,17 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成 if/else IR（then/else/end 基本块与条件分支）
         // TODO("Lab3-2: Implement IfStmt IR generation");
+        Block* thenBlock = createBlock();
+        Block* elseBlock = nullptr;
+        Block* endBlock  = createBlock();
+
+        if (node.elseStmt)
+            elseBlock = createBlock();
+        node.cond->trueTar = thenBlock->blockId;
+        if (elseBlock)
+            node.cond->falseTar = elseBlock->blockId;
+        else
+            node.cond->falseTar = endBlock->blockId;
         apply(*this, *node.cond, m);
         size_t condReg = getMaxReg();
         DataType condType = convert(node.cond->attr.val.value.type);
@@ -210,13 +222,6 @@ namespace ME
                 insert(inst);
             condReg = getMaxReg();
         }
-        Block* thenBlock = createBlock();
-        Block* elseBlock = nullptr;
-        Block* endBlock  = createBlock();
-
-        if (node.elseStmt)
-            elseBlock = createBlock();
-
         // 生成条件分支指令
         if (elseBlock)
             insert(createBranchInst(condReg, thenBlock->blockId, elseBlock->blockId));
@@ -287,6 +292,7 @@ namespace ME
         curFunc->blocks[bodyBlock->blockId] = bodyBlock;
         curFunc->blocks[stepBlock->blockId] = stepBlock;
         curFunc->blocks[endBlock->blockId]  = endBlock;
+
         if (node.init) {
             apply(*this, *node.init, m);
         }
@@ -296,6 +302,8 @@ namespace ME
         size_t condReg = static_cast<size_t>(-1);
         DataType condType = DataType::I1;
         if (node.cond) {
+            node.cond->trueTar = bodyBlock->blockId;
+            node.cond->falseTar = endBlock->blockId;
             apply(*this, *node.cond, m);
             condReg = getMaxReg();
             condType = convert(node.cond->attr.val.value.type);
