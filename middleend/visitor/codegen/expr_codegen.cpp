@@ -11,18 +11,18 @@ namespace ME
         FE::AST::VarAttr* attr = nullptr;
         size_t varReg = static_cast<size_t>(-1);
         Operand* ptrOp = nullptr;
-        // 若为全局变量
-        if (glbSymbols.find(node.entry) != glbSymbols.end())
-        {
-            attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
-            ptrOp = getGlobalOperand(node.entry->getName());
-        }
-        else if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
+        if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
         {
             attr   = &(reg2attr[name2reg.getReg(node.entry)]);
             varReg = name2reg.getReg(node.entry);
             lval2ptr[&node] = getRegOperand(varReg);
             ptrOp = lval2ptr[&node];
+        }
+        else if (glbSymbols.find(node.entry) != glbSymbols.end()) // 全局变量
+        {
+            attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
+            ptrOp = getGlobalOperand(node.entry->getName());
+            lval2ptr[&node] = ptrOp;
         }
         else
         {
@@ -203,6 +203,8 @@ namespace ME
         size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
         Block* rhsBlock = createBlock();
+        Block* curBlock = this->curBlock;
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
         lhs.trueTar = rhsBlock->blockId;
         lhs.falseTar = parentfalse;
         rhs.trueTar = parenttrue;
@@ -233,6 +235,7 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
+        enterBlock(curBlock);
     }
     void ASTCodeGen::handleLogicalOr(
         FE::AST::BinaryExpr& node, FE::AST::ExprNode& lhs, FE::AST::ExprNode& rhs, Module* m)
@@ -242,6 +245,8 @@ namespace ME
         size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
         Block* rhsBlock = createBlock();
+        Block* curBlock = this->curBlock;
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
         lhs.trueTar = parenttrue;
         lhs.falseTar = rhsBlock->blockId; 
         rhs.trueTar = parenttrue;
@@ -272,6 +277,7 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
+        enterBlock(curBlock);
     }
     void ASTCodeGen::visit(FE::AST::BinaryExpr& node, Module* m)
     {

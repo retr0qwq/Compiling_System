@@ -178,20 +178,21 @@ namespace ME
         node.cond->falseTar = endBlock->blockId;
         apply(*this, *node.cond, m);
         size_t condReg = getMaxReg();
-
-        DataType condType = convert(node.cond->attr.val.value.type);
-        if (condType != DataType::I1)
+        if(curBlock->insts.empty()||!curBlock->insts.back()->isTerminator())
         {
-            auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
-            for (auto* inst : convInsts) insert(inst);
-            condReg = getMaxReg();
+            DataType condType = convert(node.cond->attr.val.value.type);
+            if (condType != DataType::I1)
+            {
+                auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
+                for (auto* inst : convInsts) insert(inst);
+                condReg = getMaxReg();
+            }
+            insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
         }
-        insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
-
         enterBlock(bodyBlock);
         apply(*this, *node.body, m);
 
-        if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
+        if (curBlock->insts.empty() || !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(condBlock->blockId));
         enterBlock(endBlock);
         loopStack.pop_back();
@@ -213,21 +214,23 @@ namespace ME
         else
             node.cond->falseTar = endBlock->blockId;
         apply(*this, *node.cond, m);
-        size_t condReg = getMaxReg();
-        DataType condType = convert(node.cond->attr.val.value.type);
-        if (condType != DataType::I1)
+        if (curBlock->insts.empty()||!curBlock->insts.back()->isTerminator())
         {
-            auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
-            for (auto* inst : convInsts)
-                insert(inst);
-            condReg = getMaxReg();
+            size_t condReg = getMaxReg();
+            DataType condType = convert(node.cond->attr.val.value.type);
+            if (condType != DataType::I1)
+            {
+                auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
+                for (auto* inst : convInsts)
+                    insert(inst);
+                condReg = getMaxReg();
+            }
+            // 生成条件分支指令
+            if (elseBlock)
+                insert(createBranchInst(condReg, thenBlock->blockId, elseBlock->blockId));
+            else
+                insert(createBranchInst(condReg, thenBlock->blockId, endBlock->blockId));
         }
-        // 生成条件分支指令
-        if (elseBlock)
-            insert(createBranchInst(condReg, thenBlock->blockId, elseBlock->blockId));
-        else
-            insert(createBranchInst(condReg, thenBlock->blockId, endBlock->blockId));
-
         // 把 block 注册到函数
         curFunc->blocks[thenBlock->blockId] = thenBlock;
         if (elseBlock) curFunc->blocks[elseBlock->blockId] = elseBlock;
@@ -305,17 +308,20 @@ namespace ME
             node.cond->trueTar = bodyBlock->blockId;
             node.cond->falseTar = endBlock->blockId;
             apply(*this, *node.cond, m);
-            condReg = getMaxReg();
-            condType = convert(node.cond->attr.val.value.type);
-
-            // 将 cond 转为 bool
-            if (condType != DataType::I1) {
-                auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
-                for (auto inst: convInsts) insert(inst);
+            if (curBlock->insts.empty()||!curBlock->insts.back()->isTerminator())
+            {
                 condReg = getMaxReg();
-            }
+                condType = convert(node.cond->attr.val.value.type);
 
-            insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
+                // 将 cond 转为 bool
+                if (condType != DataType::I1) {
+                    auto convInsts = createTypeConvertInst(condType, DataType::I1, condReg);
+                    for (auto inst: convInsts) insert(inst);
+                    condReg = getMaxReg();
+                }
+
+                insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
+            }
         } else {
             // 无条件，视为 true
             insert(createBranchInst(bodyBlock->blockId));
