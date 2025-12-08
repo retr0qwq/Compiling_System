@@ -70,7 +70,7 @@ namespace FE::AST
                     pos = pos * attr->arrayDims[i] + idx;
                 }
                 if (pos < static_cast<int>(attr->initList.size())) {
-                    node.attr.val = ExprValue(attr->initList[pos], true);
+                    node.attr.val = ExprValue(attr->initList[pos],  node.attr.val.isConstexpr);
                 } else {
                     errors.emplace_back("Error: Internal array initList size mismatch."  + std::string("at line ") + std::to_string(node.line_num));
                     node.attr.val.isConstexpr = false;
