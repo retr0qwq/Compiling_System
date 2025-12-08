@@ -202,6 +202,11 @@ namespace ME
         // TODO("Lab3-2: Implement logical AND codegen");
         size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
+        Block* rhsBlock = createBlock();
+        lhs.trueTar = rhsBlock->blockId;
+        lhs.falseTar = parentfalse;
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
         apply(*this, lhs, m);
         size_t lhsReg = getMaxReg();
         DataType lhsType = convert(lhs.attr.val.value.type);
@@ -214,12 +219,6 @@ namespace ME
                 insert(inst);
             lhsReg = getMaxReg();
         }
-        Block* rhsBlock = createBlock();
-        Block* cur = curBlock;
-        lhs.trueTar = rhsBlock->blockId;
-        lhs.falseTar = parentfalse;
-        rhs.trueTar = parenttrue;
-        rhs.falseTar = parentfalse;
         insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
         // 进入 rhsBlock
         curFunc->blocks[rhsBlock->blockId] = rhsBlock;
@@ -234,8 +233,6 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
-        // 回到原来的块
-        enterBlock(cur);
     }
     void ASTCodeGen::handleLogicalOr(
         FE::AST::BinaryExpr& node, FE::AST::ExprNode& lhs, FE::AST::ExprNode& rhs, Module* m)
@@ -244,6 +241,11 @@ namespace ME
         //TODO("Lab3-2: Implement logical OR codegen");
         size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
+        Block* rhsBlock = createBlock();
+        lhs.trueTar = parenttrue;
+        lhs.falseTar = rhsBlock->blockId; 
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
         apply(*this, lhs, m);
         size_t lhsReg = getMaxReg();
         DataType lhsType = convert(lhs.attr.val.value.type);
@@ -256,12 +258,6 @@ namespace ME
                 insert(inst);
             lhsReg = getMaxReg();
         }
-        Block* rhsBlock = createBlock();
-        Block* cur = curBlock;
-        lhs.trueTar = parenttrue;
-        lhs.falseTar = rhsBlock->blockId; 
-        rhs.trueTar = parenttrue;
-        rhs.falseTar = parentfalse;
         insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
         // 进入 rhsBlock
         curFunc->blocks[rhsBlock->blockId] = rhsBlock;
@@ -276,8 +272,6 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
-        // 回到原来的块
-        enterBlock(cur);
     }
     void ASTCodeGen::visit(FE::AST::BinaryExpr& node, Module* m)
     {

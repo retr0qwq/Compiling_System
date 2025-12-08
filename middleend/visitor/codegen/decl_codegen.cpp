@@ -32,7 +32,7 @@ namespace ME
         {
             auto* lval = dynamic_cast<FE::AST::LeftValExpr*>(decl->lval);
             FE::Sym::Entry* entry = lval->entry;
-
+            lval->attr.val.value.type = node.type;
             size_t ptrReg = getNewRegId();
             insert(createAllocaInst(t, ptrReg));
             name2reg.addSymbol(entry, ptrReg);
