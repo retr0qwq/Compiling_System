@@ -124,9 +124,7 @@ namespace ME
     void ASTCodeGen::visit(FE::AST::ReturnStmt& node, Module* m)
     {
         // TODO(Lab 3-2): 生成 return 语句 IR（可选返回值与类型转换）
-        (void)node;
-        (void)m;
-        TODO("Lab3-2: Implement ReturnStmt IR generation");
+        // TODO("Lab3-2: Implement ReturnStmt IR generation");
         DataType retType = curFunc->funcDef->retType;  
         if (!node.retExpr)
         {
@@ -233,7 +231,7 @@ namespace ME
         enterBlock(thenBlock);
         apply(*this, *node.thenStmt, m);
 
-        if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
+        if (curBlock->insts.empty() || !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(endBlock->blockId));
 
         // else 分支
@@ -242,7 +240,7 @@ namespace ME
             enterBlock(elseBlock);
             apply(*this, *node.elseStmt, m);
 
-            if (!curBlock->insts.empty() && !curBlock->insts.back()->isTerminator())
+            if (curBlock->insts.empty() || !curBlock->insts.back()->isTerminator())
                 insert(createBranchInst(endBlock->blockId));
         }
         enterBlock(endBlock);
