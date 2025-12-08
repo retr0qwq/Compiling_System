@@ -172,7 +172,7 @@ namespace ME
         curFunc->blocks[endBlock->blockId]  = endBlock;
         loopStack.push_back(LoopContext{condBlock->blockId, endBlock->blockId });
 
-        // === 生成条件检查 ===
+        // 生成条件检查
         enterBlock(condBlock);
         node.cond->trueTar = bodyBlock->blockId;
         node.cond->falseTar = endBlock->blockId;
@@ -190,7 +190,8 @@ namespace ME
             insert(createBranchInst(condReg, bodyBlock->blockId, endBlock->blockId));
         }
         enterBlock(bodyBlock);
-        apply(*this, *node.body, m);
+        if(node.body)
+            apply(*this, *node.body, m);
 
         if (curBlock->insts.empty() || !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(condBlock->blockId));
@@ -237,7 +238,8 @@ namespace ME
         curFunc->blocks[endBlock->blockId] = endBlock;
         // then分支
         enterBlock(thenBlock);
-        apply(*this, *node.thenStmt, m);
+        if(node.thenStmt)
+            apply(*this, *node.thenStmt, m);
 
         if (curBlock->insts.empty() || !curBlock->insts.back()->isTerminator())
             insert(createBranchInst(endBlock->blockId));

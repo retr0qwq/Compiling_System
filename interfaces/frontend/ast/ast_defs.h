@@ -214,7 +214,7 @@ namespace FE::AST
     struct ExprValue
     {
         VarValue value;
-        bool     isConstexpr;  // 该成员用于表示该表达式的值是否为编译期可以确定的常量
+        bool     isConstexpr=false;  // 该成员用于表示该表达式的值是否为编译期可以确定的常量
 
         ExprValue() : value(), isConstexpr(false) {}
         ExprValue(const VarValue& v, bool isConst = false) : value(v), isConstexpr(isConst) {}
