@@ -8,6 +8,7 @@
 #include <middleend/visitor/printer/module_printer.h>
 #include <middleend/module/ir_module.h>
 #include <middleend/pass/unify_return.h>
+#include <middleend/pass/dce_pass.h>
 
 #include <backend/mir/m_module.h>
 #include <backend/target/registry.h>
@@ -321,6 +322,8 @@ int main(int argc, char** argv)
              * - 难度不低于上述 pass 的其它优化
              */
             // 下面这个 pass 可以作为参考，主要是示范如何通过cache获取分析pass的结果
+            ME::DcePass dcePass;
+            dcePass.runOnModule(m);
             ME::UnifyReturnPass unifyReturnPass;
             unifyReturnPass.runOnModule(m);
         }
