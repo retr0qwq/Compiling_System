@@ -9,6 +9,7 @@
 #include <middleend/module/ir_module.h>
 #include <middleend/pass/unify_return.h>
 #include <middleend/pass/dce_pass.h>
+#include <middleend/pass/mem2reg.h>
 
 #include <backend/mir/m_module.h>
 #include <backend/target/registry.h>
@@ -326,6 +327,8 @@ int main(int argc, char** argv)
             dcePass.runOnModule(m);
             ME::UnifyReturnPass unifyReturnPass;
             unifyReturnPass.runOnModule(m);
+            ME::Mem2Reg Mem2Reg;
+            Mem2Reg.runOnModule(m);
         }
 
         if (step == "-llvm")
