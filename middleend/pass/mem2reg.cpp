@@ -1,6 +1,8 @@
 #include <middleend/pass/mem2reg.h>
 #include <unordered_map>
 #include <unordered_set>
+#include <deque>
+#include <stack>
 using namespace ME;
 void Mem2Reg::runOnModule(Module& module)
 {
@@ -224,8 +226,236 @@ bool Mem2Reg::Mem2Reg_2(Function& function)
     }
     return changed;
 }
-
-bool Mem2Reg::Mem2Reg_3(Function& function, Analysis::DomInfo &dominfo)
+bool Mem2Reg::Mem2Reg_3(Function& function)
 {
-    
+    using namespace Analysis;
+
+    CFG* cfg = AM.get<CFG>(function);
+    DomInfo* domInfo = AM.get<DomInfo>(function);
+    auto& df = domInfo->getDomFrontier();
+    auto& domTree = domInfo->getDomTree();
+
+    std::unordered_map<Operand*, AllocaInst*> reg2alloca;
+    std::unordered_map<AllocaInst*, Block*> allocaDefBlock;
+
+    for (auto& [bid, block] : function.blocks)
+    {
+        for (auto* inst : block->insts)
+        {
+            if (inst->opcode == Operator::ALLOCA)
+            {
+                auto* a = static_cast<AllocaInst*>(inst);
+                allocaDefBlock[a] = block;
+                reg2alloca[a->res] = a;
+            }
+        }
+    }
+
+    std::unordered_map<AllocaInst*, std::set<Block*>> allocaUses;
+
+    for (auto& [bid, block] : function.blocks)
+    {
+        for (auto* inst : block->insts)
+        {
+            Operand* ptr = nullptr;
+            if (inst->opcode == Operator::LOAD)
+                ptr = static_cast<LoadInst*>(inst)->ptr;
+            else if (inst->opcode == Operator::STORE)
+                ptr = static_cast<StoreInst*>(inst)->ptr;
+
+            if (ptr)
+            {
+                auto it = reg2alloca.find(ptr);
+                if (it != reg2alloca.end())
+                    allocaUses[it->second].insert(block);
+            }
+        }
+    }
+
+    bool changed = false;
+
+    std::unordered_map<AllocaInst*, std::set<Block*>> hasPhi;
+    std::unordered_map<PhiInst*, AllocaInst*> phiToAlloca;
+
+    for (auto& [allocaInst, useBlocks] : allocaUses)
+    {
+        std::set<Block*> work = useBlocks;
+        while (!work.empty())
+        {
+            auto it = work.begin();
+            Block* b = *it;
+            work.erase(it);
+
+            if (b->blockId >= df.size()) continue; // 边界检查
+
+            for (int dfBid : df[b->blockId])
+            {
+                // 安全获取块，避免 [] 产生 nullptr
+                auto itBlock = cfg->id2block.find(dfBid);
+                if (itBlock == cfg->id2block.end()) continue;
+                
+                Block* frontierBlock = itBlock->second;
+                if (hasPhi[allocaInst].count(frontierBlock)) continue;
+
+                RegOperand* phiRes = OperandFactory::getInstance().getRegOperand(function.getNewRegId()); 
+                PhiInst* phi = new PhiInst(allocaInst->dt, phiRes);
+
+                frontierBlock->insts.push_front(phi);
+                hasPhi[allocaInst].insert(frontierBlock);
+                phiToAlloca[phi] = allocaInst;
+                work.insert(frontierBlock);
+            }
+        }
+    }
+
+    std::unordered_map<AllocaInst*, std::stack<Operand*>> valStack;
+    for (auto& [allocaInst, _] : allocaDefBlock)
+        valStack[allocaInst] = std::stack<Operand*>();
+
+    std::function<void(Block*)> renameBlock;
+    renameBlock = [&](Block* block)
+    {
+        if (!block) return; // 关键安全检查：防止空指针访问
+
+        std::unordered_map<AllocaInst*, int> pushCount; // 记录本块压栈次数
+        RegMap renameMap;
+
+        // 1. 处理 PHI 定义
+        for (auto* inst : block->insts)
+        {
+            if (inst->opcode == Operator::PHI)
+            {
+                auto* phi = static_cast<PhiInst*>(inst);
+                auto it = phiToAlloca.find(phi);
+                if (it != phiToAlloca.end())
+                {
+                    valStack[it->second].push(phi->res);
+                    pushCount[it->second]++;
+                }
+            }
+        }
+
+        // 2. 处理 Load/Store
+        for (auto* inst : block->insts)
+        {
+            if (inst->opcode == Operator::LOAD)
+            {
+                auto* l = static_cast<LoadInst*>(inst);
+                auto it = reg2alloca.find(l->ptr);
+                if (it != reg2alloca.end())
+                {
+                    AllocaInst* allocaInst = it->second;
+                    Operand* val = valStack[allocaInst].empty() ? allocaInst->res : valStack[allocaInst].top();
+                    renameMap[l->res->getRegNum()] = val->getRegNum();
+                    changed = true;
+                }
+            }
+            else if (inst->opcode == Operator::STORE)
+            {
+                auto* s = static_cast<StoreInst*>(inst);
+                auto it = reg2alloca.find(s->ptr);
+                if (it != reg2alloca.end())
+                {
+                    valStack[it->second].push(s->val);
+                    pushCount[it->second]++;
+                    changed = true;
+                }
+            }
+        }
+
+        // 应用替换
+        RegRename Renamer;
+        for (auto* inst : block->insts)
+        {   
+            if (!inst) continue; 
+            if (inst->opcode == Operator::ALLOCA) continue;
+            if (inst->opcode == Operator::PHI)
+            {
+                auto* phi = static_cast<PhiInst*>(inst);
+                if (phiToAlloca.count(phi)) continue;
+            }
+            apply(Renamer, *inst, renameMap);
+        }
+
+        // 3. 填充后继块 PHI (Safe Access)
+        if (block->blockId < cfg->G.size())
+        {
+            for (auto* succBlock : cfg->G[block->blockId])
+            {
+                if (!succBlock) continue;
+
+                for (auto* inst : succBlock->insts)
+                {
+                    if (inst->opcode != Operator::PHI) continue;
+
+                    auto* phi = static_cast<PhiInst*>(inst);
+                    auto it = phiToAlloca.find(phi);
+                    if (it == phiToAlloca.end()) continue;
+
+                    AllocaInst* allocaInst = it->second;
+
+                    // 直接获取栈顶值或 fallback 到原始 alloca 寄存器
+                    Operand* val = valStack[allocaInst].empty() ? allocaInst->res : valStack[allocaInst].top();
+                    LabelOperand* label = OperandFactory::getInstance().getLabelOperand(block->blockId);
+
+                    phi->addIncoming(val, label);
+                }
+            }
+        }
+
+
+        // 4. 递归遍历支配树子节点 (Safe Access)-
+        if (block->blockId < domTree.size())
+        {
+            for (int childBid : domTree[block->blockId])
+            {
+                auto it = cfg->id2block.find(childBid);
+                if (it != cfg->id2block.end())
+                    renameBlock(it->second);
+            }
+        }
+
+        // 5. 弹出栈 (根据计数精确弹出)
+        for (auto& [allocaInst, count] : pushCount)
+        {
+            for (int i = 0; i < count; ++i)
+                valStack[allocaInst].pop();
+        }
+    };
+
+    // 安全的入口调用
+    if (!function.blocks.empty())
+    {
+        // 优先尝试 ID 为 0 的块，如果不存在则取第一个
+        auto entryIt = cfg->id2block.find(0);
+        if (entryIt != cfg->id2block.end())
+            renameBlock(entryIt->second);
+        else
+            renameBlock(function.blocks.begin()->second);
+    }
+
+    // 清理原始指令
+    for (auto& [bid, block] : function.blocks)
+    {
+        std::deque<Instruction*> newInsts;
+        for (auto* inst : block->insts)
+        {
+            bool remove = false;
+            if (inst->opcode == Operator::ALLOCA) {
+                if (reg2alloca.count(static_cast<AllocaInst*>(inst)->res)) remove = true;
+            } else if (inst->opcode == Operator::LOAD) {
+                if (reg2alloca.count(static_cast<LoadInst*>(inst)->ptr)) remove = true;
+            } else if (inst->opcode == Operator::STORE) {
+                if (reg2alloca.count(static_cast<StoreInst*>(inst)->ptr)) remove = true;
+            }
+            
+            if (!remove) newInsts.push_back(inst);
+        }
+        block->insts.swap(newInsts);
+    }
+
+    if (changed)
+        AM.invalidate(function);
+
+    return changed;
 }

@@ -26,7 +26,7 @@ namespace ME
       private:
         bool Mem2Reg_1(Function& function); // 删除未load的alloca指令
         bool Mem2Reg_2(Function& function); // def-use在同一block内的mem2reg
-        bool Mem2Reg_3(Function& function, Analysis:: DomInfo &dominfo); // 完整的mem2reg算法
+        bool Mem2Reg_3(Function& function); // 完整的mem2reg算法
     };
 
 }  // namespace ME
