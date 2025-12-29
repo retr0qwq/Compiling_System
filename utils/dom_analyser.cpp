@@ -190,15 +190,21 @@ void DomAnalyzer::build(
         int curr = dfs_to_block[dfs_id];
         if (imm_dom[curr] != dfs_to_block[semi_dom[curr]]) imm_dom[curr] = imm_dom[imm_dom[curr]];
     }
-
-    // 构建支配树（以 idom 为树边）
-    for (int i = 0; i < node_count; ++i)
-        if (block_to_dfs[i]) dom_tree[imm_dom[i]].push_back(i);
-
+    dom_tree.clear();
     dom_tree.resize(virtual_source);
+    for (int i = 0; i < node_count; ++i) {
+        int p = imm_dom[i];
+        if (p >= 0 && p < (int)dom_tree.size() && i != p) {
+            dom_tree[p].push_back(i);
+        }
+    }
     dom_frontier.resize(virtual_source);
     imm_dom.resize(virtual_source);
-
+    for (size_t u = 0; u < dom_tree.size(); ++u) {
+        for (int v : dom_tree[u]) {
+            assert(v != (int)u); // 自环检查
+        }
+    }
     // 在支配树构建完成后，你还需要从里面移除本来并不存在的虚拟源节点
     // 同时，需要注意设置移除了虚拟源节点后的入口节点的支配者
     // TODO("Lab4: Remove virtual source & adjust imm_dom");
@@ -206,6 +212,12 @@ void DomAnalyzer::build(
         if (!block_to_dfs[i] || imm_dom[i] == virtual_source || imm_dom[i] == i)
             imm_dom[i] = -1;
     }
+    for (size_t u = 0; u < dom_tree.size(); ++u) {
+        for (int v : dom_tree[u]) {
+            assert(v != (int)u); // 自环检查
+        }
+    }
+
     // TODO(Lab 4): 构建支配边界
     for (int block = 0; block < node_count; ++block)
     {
@@ -219,7 +231,7 @@ void DomAnalyzer::build(
             if (block_to_dfs[succ] == 0) continue;
             // 若 block 不是 succ 的直接支配者，才可能进入 DF
             if (imm_dom[succ] == block) continue;
-            
+
             int runner = block;
 
             // 沿 idom 链向上，直到 idom[succ]
@@ -230,6 +242,7 @@ void DomAnalyzer::build(
             }
         }
     }
+    
 }
 
 void DomAnalyzer::clear()

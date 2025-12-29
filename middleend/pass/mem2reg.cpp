@@ -226,6 +226,8 @@ bool Mem2Reg::Mem2Reg_2(Function& function)
     }
     return changed;
 }
+
+
 bool Mem2Reg::Mem2Reg_3(Function& function)
 {
     using namespace Analysis;
@@ -237,6 +239,7 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
 
     std::unordered_map<Operand*, AllocaInst*> reg2alloca;
     std::unordered_map<AllocaInst*, Block*> allocaDefBlock;
+    std::unordered_map<AllocaInst*, Operand*> exitVal;
 
     for (auto& [bid, block] : function.blocks)
     {
@@ -312,127 +315,98 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
     for (auto& [allocaInst, _] : allocaDefBlock)
         valStack[allocaInst] = std::stack<Operand*>();
 
-    std::function<void(Block*)> renameBlock;
-    renameBlock = [&](Block* block)
+    std::function<void(Block*, RegMap)> renameBlock;
+    renameBlock = [&](Block* block, RegMap renameMap) 
     {
-        if (!block) return; // 关键安全检查：防止空指针访问
+        if (!block) return;
 
-        std::unordered_map<AllocaInst*, int> pushCount; // 记录本块压栈次数
-        RegMap renameMap;
-
-        // 1. 处理 PHI 定义
-        for (auto* inst : block->insts)
-        {
-            if (inst->opcode == Operator::PHI)
-            {
-                auto* phi = static_cast<PhiInst*>(inst);
-                auto it = phiToAlloca.find(phi);
-                if (it != phiToAlloca.end())
-                {
-                    valStack[it->second].push(phi->res);
-                    pushCount[it->second]++;
-                }
-            }
-        }
-
-        // 2. 处理 Load/Store
-        for (auto* inst : block->insts)
-        {
-            if (inst->opcode == Operator::LOAD)
-            {
-                auto* l = static_cast<LoadInst*>(inst);
-                auto it = reg2alloca.find(l->ptr);
-                if (it != reg2alloca.end())
-                {
-                    AllocaInst* allocaInst = it->second;
-                    Operand* val = valStack[allocaInst].empty() ? allocaInst->res : valStack[allocaInst].top();
-                    renameMap[l->res->getRegNum()] = val->getRegNum();
-                    changed = true;
-                }
-            }
-            else if (inst->opcode == Operator::STORE)
-            {
-                auto* s = static_cast<StoreInst*>(inst);
-                auto it = reg2alloca.find(s->ptr);
-                if (it != reg2alloca.end())
-                {
-                    valStack[it->second].push(s->val);
-                    pushCount[it->second]++;
-                    changed = true;
-                }
-            }
-        }
-
-        // 应用替换
+        std::unordered_map<AllocaInst*, int> pushCount;
         RegRename Renamer;
-        for (auto* inst : block->insts)
-        {   
-            if (!inst) continue; 
-            if (inst->opcode == Operator::ALLOCA) continue;
-            if (inst->opcode == Operator::PHI)
-            {
+        // 1. 处理本块 PHI 的定义 (Push to Stack)
+        for (auto* inst : block->insts) {
+            if (inst->opcode == Operator::PHI) {
                 auto* phi = static_cast<PhiInst*>(inst);
-                if (phiToAlloca.count(phi)) continue;
-            }
-            apply(Renamer, *inst, renameMap);
-        }
-
-        // 3. 填充后继块 PHI (Safe Access)
-        if (block->blockId < cfg->G.size())
-        {
-            for (auto* succBlock : cfg->G[block->blockId])
-            {
-                if (!succBlock) continue;
-
-                for (auto* inst : succBlock->insts)
-                {
-                    if (inst->opcode != Operator::PHI) continue;
-
-                    auto* phi = static_cast<PhiInst*>(inst);
-                    auto it = phiToAlloca.find(phi);
-                    if (it == phiToAlloca.end()) continue;
-
-                    AllocaInst* allocaInst = it->second;
-
-                    // 直接获取栈顶值或 fallback 到原始 alloca 寄存器
-                    Operand* val = valStack[allocaInst].empty() ? allocaInst->res : valStack[allocaInst].top();
-                    LabelOperand* label = OperandFactory::getInstance().getLabelOperand(block->blockId);
-
-                    phi->addIncoming(val, label);
+                if (phiToAlloca.count(phi)) {
+                    valStack[phiToAlloca[phi]].push(phi->res);
+                    pushCount[phiToAlloca[phi]]++;
                 }
             }
         }
 
-
-        // 4. 递归遍历支配树子节点 (Safe Access)-
-        if (block->blockId < domTree.size())
-        {
-            for (int childBid : domTree[block->blockId])
-            {
-                auto it = cfg->id2block.find(childBid);
-                if (it != cfg->id2block.end())
-                    renameBlock(it->second);
+        // 2. 处理 Load/Store (更新 renameMap 和 valStack)
+        for (auto it = block->insts.begin(); it != block->insts.end(); ) {
+            auto* inst = *it;
+            if (inst->opcode != Operator::PHI) {
+                apply(Renamer, *inst, renameMap);
+            }
+            if (inst->opcode == Operator::LOAD) {
+                auto* l = static_cast<LoadInst*>(inst);
+                if (reg2alloca.count(l->ptr)) {
+                    AllocaInst* ai = reg2alloca[l->ptr];
+                    // 如果栈为空，给一个常量 0 操作数，不要给 allocaInst->res
+                    Operand* curVal = valStack[ai].empty() ? 
+                                    OperandFactory::getInstance().getImmeI32Operand(0) : valStack[ai].top();
+                    
+                    renameMap[l->res->getRegNum()] = curVal->getRegNum();
+                    it = block->insts.erase(it); // 只有确认是 mem2reg 的 load 才能删
+                    continue;
+                }
+            } else if (inst->opcode == Operator::STORE) {
+                auto* s = static_cast<StoreInst*>(inst);
+                if (reg2alloca.count(s->ptr)) {
+                    AllocaInst* ai = reg2alloca[s->ptr];
+                    valStack[ai].push(s->val);
+                    pushCount[ai]++;
+                    it = block->insts.erase(it);
+                    continue;
+                }
+            }
+            ++it;
+        }
+        // --- 重点修改 1：在递归子节点前，填充 CFG 后继的 PHI ---
+        // 此时 valStack.top() 正好代表了变量在当前块结束时的最新值
+        if (block->blockId < cfg->G.size()) {
+            for (auto* succBlock : cfg->G[block->blockId]) {
+                for (auto* inst : succBlock->insts) {
+                    if (inst->opcode != Operator::PHI) break;
+                    
+                    auto* phi = static_cast<PhiInst*>(inst);
+                    if (phiToAlloca.count(phi)) {
+                        AllocaInst* ai = phiToAlloca[phi];
+                        Operand* val = valStack[ai].empty() ? OperandFactory::getInstance().getImmeI32Operand(0) : valStack[ai].top();
+                        
+                        phi->addIncoming(val, OperandFactory::getInstance().getLabelOperand(block->blockId));
+                    }
+                }
             }
         }
 
-        // 5. 弹出栈 (根据计数精确弹出)
-        for (auto& [allocaInst, count] : pushCount)
-        {
-            for (int i = 0; i < count; ++i)
+        // --- 重点修改 2：递归支配树子节点，传递 renameMap ---
+        if (block->blockId < domTree.size()) {
+            for (int childBid : domTree[block->blockId]) {
+                if (cfg->id2block.count(childBid)) {
+                    renameBlock(cfg->id2block[childBid], renameMap);
+                }
+            }
+        }
+
+        // 4. 弹出栈 (回溯)
+        for (auto& [allocaInst, count] : pushCount) {
+            for (int i = 0; i < count; ++i) {
                 valStack[allocaInst].pop();
+            }
         }
     };
-
+    const auto& immDom = domInfo->getImmDom();
     // 安全的入口调用
-    if (!function.blocks.empty())
+    for (auto& [bid, block] : function.blocks)
     {
-        // 优先尝试 ID 为 0 的块，如果不存在则取第一个
-        auto entryIt = cfg->id2block.find(0);
-        if (entryIt != cfg->id2block.end())
-            renameBlock(entryIt->second);
-        else
-            renameBlock(function.blocks.begin()->second);
+        if (bid < immDom.size() && immDom[bid] == -1)
+        {
+            renameBlock(block, RegMap{});
+        }
     }
+
 
     // 清理原始指令
     for (auto& [bid, block] : function.blocks)
