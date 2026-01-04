@@ -320,7 +320,7 @@ namespace BE
             // 步骤：
             // 1) ops 以 currentChain_ 开头 （考虑为什么？）
             // 2) 追加 callee 符号：dag.getSymNode(ISD::SYMBOL, {BE::PTR}, {}, inst.funcName)
-            // 3) 依次追加所有参数（用 mapType 推导参数类型作为 dtype）
+            // 3) 依次追加所有参数（用  推导参数类型作为 dtype）
             // 4) 有返回值：结果类型为 vt，setDef，并更新 currentChain_ = node
             //    无返回值：结果类型为 {}，同样更新 currentChain_
             // TODO("实现 CALL 的 DAG 节点生成（包含 Chain / SYMBOL / 参数与返回值处理）");

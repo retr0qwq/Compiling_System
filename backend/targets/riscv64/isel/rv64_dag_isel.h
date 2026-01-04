@@ -100,6 +100,20 @@ namespace BE::RV64
         void selectCast(const DAG::SDNode* node, BE::Block* m_block);
 
         int dataTypeSize(BE::DataType* dt);
+        BE::DataType* mapType(ME::DataType dt)
+        {
+            switch (dt)
+            {
+                case ME::DataType::I1:
+                case ME::DataType::I8:
+                case ME::DataType::I32: return BE::I32;
+                case ME::DataType::I64:
+                case ME::DataType::PTR: return BE::I64;
+                case ME::DataType::F32: return BE::F32;
+                case ME::DataType::DOUBLE: return BE::F64;
+                default: ERROR("Unsupported IR data type"); return BE::I32;
+            }
+        }
     };
 
 }  // namespace BE::RV64
