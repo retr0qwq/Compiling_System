@@ -52,27 +52,73 @@ namespace BE::RA
             std::vector<Segment> segs;
             bool                 crossesCall = false;
 
+            int                  physReg = -1;  // 分配的物理寄存器，-1表示未分配
+            bool                 spilled = false; // 是否被溢出
+            int                  spillSlot = -1; // 溢出槽的帧索引
+
             void addSegment(int s, int e)
             {
                 if (s >= e) return;
                 segs.emplace_back(s, e);
             }
-            void merge() { TODO("考虑如何合并区间"); }
+            void merge() 
+            { 
+                if (segs.empty()) return;
+                std::sort(segs.begin(), segs.end(),
+                    [](const Segment& a, const Segment& b) { return a.start < b.start; });
+                std::vector<Segment> merged;
+                merged.push_back(segs[0]);
+                for (size_t i = 1; i < segs.size(); i++)
+                {
+                    if (segs[i].start <= merged.back().end)
+                    {
+                        merged.back().end = std::max(merged.back().end, segs[i].end);
+                    }
+                    else
+                    {
+                        merged.push_back(segs[i]);
+                    }
+                }
+                segs = std::move(merged);
+            }
         };
 
         struct IntervalOrder
         {
-            bool operator()(const Interval* a, const Interval* b) const { TODO("实现 IntervalOrder 的比较"); }
+            bool operator()(const Interval* a, const Interval* b) const 
+            { 
+                return a->segs[0].start < b->segs[0].start;
+            }
         };
     }  // namespace
 
     static std::vector<int> buildAllocatableInt(const BE::Targeting::TargetRegInfo& ri)
     {
-        TODO("收集可分配的 GPR 集合");
+        std::vector<int> allocatable;
+        const auto& allIntRegs = ri.intRegs();  // 获取所有整数寄存器
+        const auto& reservedRegs = ri.reservedRegs();
+        std::set<int> reservedSet(reservedRegs.begin(), reservedRegs.end());
+        // 排除保留寄存器
+        for (int reg : allIntRegs)
+        {
+            if (!reservedSet.count(reg)) 
+                allocatable.push_back(reg);
+        }
+        return allocatable;
     }
     static std::vector<int> buildAllocatableFloat(const BE::Targeting::TargetRegInfo& ri)
     {
-        TODO("收集可分配的 FPR 集合");
+        std::vector<int> allocatable;
+        const auto& allFloatRegs = ri.floatRegs();  // 获取所有浮点寄存器
+        const auto& reservedRegs = ri.reservedRegs();
+        std::set<int> reservedSet(reservedRegs.begin(), reservedRegs.end());
+        // 排除保留寄存器
+        for (int reg : allFloatRegs) 
+        {
+            if (!reservedSet.count(reg))
+                allocatable.push_back(reg);
+        }
+        return allocatable;
     }
 
     void LinearScanRA::allocateFunction(BE::Function& func, const BE::Targeting::TargetRegInfo& regInfo)
@@ -117,9 +163,22 @@ namespace BE::RA
         // ============================================================================
         // 作用：搭建活跃性数据流的图结构。
         // 如何做：可直接用 MIR::CFGBuilder 生成 CFG，再转换为 succs 映射。
-        BE::MIR::CFG*                                 cfg = nullptr;
+        BE::MIR::CFGBuilder builder(BE::Targeting::g_adapter);
+        BE::MIR::CFG* cfg = builder.buildCFGForFunction(&func);
         std::map<BE::Block*, std::vector<BE::Block*>> succs;
-        TODO("RA: 构建 CFG 并获取后继关系");
+
+        for (auto& [bid, block] : cfg->blocks) {
+            std::vector<BE::Block*> successors;
+            // 使用graph_id获取后继的block id
+            if (bid < cfg->graph_id.size()) {
+                for (uint32_t succ_id : cfg->graph_id[bid]) {
+                    auto it = cfg->blocks.find(succ_id);
+                    if (it != cfg->blocks.end())
+                        successors.push_back(it->second);
+                }
+            }
+            succs[block] = successors;
+        }
 
         // ============================================================================
         // 活跃性分析（IN/OUT）
@@ -159,7 +218,102 @@ namespace BE::RA
         // ============================================================================
         // 作用：得到每个 vreg 的若干 [start,end) 段并合并（interval.merge()）。
         // 如何做：对每个基本块，反向遍历其指令序列，根据 IN/OUT/uses/defs 更新段的开始/结束。
-        TODO("RA: 构建活跃区间");
+        std::map<BE::Register, Interval*> intervalsMap;
+    
+        // 先为所有虚拟寄存器创建空的Interval
+        for (auto& [bid, block] : func.blocks) {
+            for (auto& inst : block->insts) {
+                std::vector<BE::Register> uses, defs;
+                BE::Targeting::g_adapter->enumUses(inst, uses);
+                BE::Targeting::g_adapter->enumDefs(inst, defs);
+                
+                for (auto& reg : uses) {
+                    if (!intervalsMap.count(reg)) {
+                        intervalsMap[reg] = new Interval{reg, {}, false};
+                    }
+                }
+                for (auto& reg : defs) {
+                    if (!intervalsMap.count(reg)) {
+                        intervalsMap[reg] = new Interval{reg, {}, false};
+                    }
+                }
+            }
+        }
+        
+        // 为每个基本块构建活跃区间段
+        for (auto& [bid, block] : func.blocks) {
+            auto blockRangeIt = blockRange.find(block);
+            if (blockRangeIt == blockRange.end()) continue;
+            
+            int blockStart = blockRangeIt->second.first;
+            int blockEnd = blockRangeIt->second.second;
+            
+            // 初始化活跃集合为OUT[block]
+            std::set<BE::Register> live = OUT[block];
+            
+            // 从后向前遍历指令
+            int pos = blockEnd - 1;
+            for (auto rit = block->insts.rbegin(); rit != block->insts.rend(); ++rit, --pos) {
+                auto& inst = *rit;
+                
+                std::vector<BE::Register> uses, defs;
+                BE::Targeting::g_adapter->enumUses(inst, uses);
+                BE::Targeting::g_adapter->enumDefs(inst, defs);
+                
+                // 在指令处：先添加DEF，再添加USE（因为从后向前）
+                for (auto& reg : defs) {
+                    if (intervalsMap.count(reg)) {
+                        intervalsMap[reg]->addSegment(pos, pos + 1);
+                    }
+                }
+                
+                // 更新活跃集合
+                for (auto& reg : defs) {
+                    live.erase(reg);
+                }
+                
+                // 为当前活跃的寄存器添加区间段
+                for (auto& reg : live) {
+                    if (intervalsMap.count(reg)) {
+                        intervalsMap[reg]->addSegment(pos, pos + 1);
+                    }
+                }
+                
+                // 添加USE到活跃集合
+                for (auto& reg : uses) {
+                    live.insert(reg);
+                }
+            }
+        }
+        
+        // 合并每个Interval的段
+        for (auto& [reg, interval] : intervalsMap) 
+        {
+            interval->merge();
+            
+            // 检查是否跨越调用点
+            for (int callPos : callPoints) {
+                if (interval->segs.empty()) continue;
+                if (callPos >= interval->segs[0].start && callPos < interval->segs.back().end) 
+                {
+                    interval->crossesCall = true;
+                    break;
+                }
+            }
+        }
+        
+        // 收集所有Interval到向量中
+        std::vector<Interval*> intervals;
+        for (auto& [reg, interval] : intervalsMap) 
+        {
+            intervals.push_back(interval);
+        }
+        
+        // 按起点排序
+        std::sort(intervals.begin(), intervals.end(), 
+                [](const Interval* a, const Interval* b) {
+                    return a->segs[0].start < b->segs[0].start;
+                });
 
         // ============================================================================
         // 线性扫描主循环
@@ -168,8 +322,181 @@ namespace BE::RA
         // 然后尝试分配空闲物理寄存器；若无可用，执行溢出策略（如“溢出结束点更远”的区间）。
         auto allIntRegs   = buildAllocatableInt(regInfo);
         auto allFloatRegs = buildAllocatableFloat(regInfo);
-        TODO("RA: 实现 active 维护、空闲物理寄存器选择/冲突检测、溢出策略与记录（assignedPhys / spillFrameIndex）");
 
+        // 将被调用者保存寄存器放在前面，优先分配给跨调用的区间
+        std::vector<int> orderedIntRegs;
+        std::vector<int> orderedFloatRegs;
+        
+        // 首先添加被调用者保存寄存器
+        const auto& calleeSavedInt = regInfo.calleeSavedIntRegs();
+        const auto& calleeSavedFloat = regInfo.calleeSavedFloatRegs();
+        const auto& reservedRegs = regInfo.reservedRegs();
+        
+        std::set<int> reservedSet(reservedRegs.begin(), reservedRegs.end());
+        
+        for (int reg : calleeSavedInt) {
+            if (!reservedSet.count(reg)) {
+                orderedIntRegs.push_back(reg);
+            }
+        }
+        
+        // 然后添加其他可分配寄存器
+        for (int reg : allIntRegs) {
+            if (!reservedSet.count(reg) && 
+                std::find(orderedIntRegs.begin(), orderedIntRegs.end(), reg) == orderedIntRegs.end()) {
+                orderedIntRegs.push_back(reg);
+            }
+        }
+        
+        // 浮点寄存器同理
+        for (int reg : calleeSavedFloat) {
+            if (!reservedSet.count(reg)) {
+                orderedFloatRegs.push_back(reg);
+            }
+        }
+        
+        for (int reg : allFloatRegs) {
+            if (!reservedSet.count(reg) && 
+                std::find(orderedFloatRegs.begin(), orderedFloatRegs.end(), reg) == orderedFloatRegs.end()) {
+                orderedFloatRegs.push_back(reg);
+            }
+        }
+        
+        // 活动集合，按结束时间排序
+        std::set<Interval*, bool(*)(Interval*, Interval*)> active(
+            [](Interval* a, Interval* b) { return a->segs.back().end < b->segs.back().end; }
+        );
+        
+        // 已分配的物理寄存器集合
+        std::set<int> usedPhysRegs;
+        
+        // 存储分配结果
+        std::map<BE::Register, int> assignedPhys;
+        std::map<BE::Register, int> spillFrameIndex;
+        
+        // 为每个Interval分配寄存器
+        for (auto* interval : intervals) {
+            // 从活动集合中移除已结束的Interval
+            while (!active.empty() && (*active.begin())->segs.back().end <= interval->segs[0].start) {
+                Interval* finished = *active.begin();
+                active.erase(active.begin());
+                if (finished->physReg != -1) {
+                    usedPhysRegs.erase(finished->physReg);
+                }
+            }
+            
+            // 尝试分配物理寄存器
+            bool allocated = false;
+            const std::vector<int>* allocatable = nullptr;
+            
+            // 判断是整数还是浮点寄存器
+            // 注意：这里需要根据虚拟寄存器的类型来判断，假设可以通过某种方式判断
+            // 这里简化处理，假设所有虚拟寄存器都是整数类型
+            allocatable = &orderedIntRegs;
+            
+            if (allocatable) {
+                // 对于跨调用的区间，优先尝试被调用者保存寄存器
+                if (interval->crossesCall) {
+                    for (int physReg : *allocatable) {
+                        bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), physReg) != calleeSavedInt.end();
+                        if (isCalleeSaved && !usedPhysRegs.count(physReg)) {
+                            // 检查是否与其他活动Interval冲突
+                            bool conflict = false;
+                            for (auto* activeInt : active) {
+                                if (activeInt->physReg == physReg) {
+                                    conflict = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!conflict) {
+                                // 分配成功
+                                interval->physReg = physReg;
+                                assignedPhys[interval->vreg] = physReg;
+                                usedPhysRegs.insert(physReg);
+                                active.insert(interval);
+                                allocated = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // 如果没有分配到被调用者保存寄存器，或者不是跨调用区间，尝试所有寄存器
+                if (!allocated) {
+                    for (int physReg : *allocatable) {
+                        // 检查该物理寄存器是否被使用
+                        if (!usedPhysRegs.count(physReg)) {
+                            // 检查是否与其他活动Interval冲突
+                            bool conflict = false;
+                            for (auto* activeInt : active) {
+                                if (activeInt->physReg == physReg) {
+                                    conflict = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!conflict) {
+                                // 分配成功
+                                interval->physReg = physReg;
+                                assignedPhys[interval->vreg] = physReg;
+                                usedPhysRegs.insert(physReg);
+                                active.insert(interval);
+                                allocated = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (!allocated) {
+                // 需要溢出
+                interval->spilled = true;
+                
+                // 选择溢出哪个Interval：活动集合中结束时间最晚的
+                if (!active.empty()) {
+                    auto* spillCandidate = *active.rbegin(); // 结束时间最晚的
+                    if (spillCandidate->segs.back().end > interval->segs.back().end) {
+                        // 溢出活动集合中的Interval
+                        spillCandidate->spilled = true;
+                        spillCandidate->physReg = -1;
+                        assignedPhys.erase(spillCandidate->vreg);
+                        usedPhysRegs.erase(spillCandidate->physReg);
+                        active.erase(spillCandidate);
+                        
+                        // 重新尝试分配当前Interval
+                        for (int physReg : *allocatable) {
+                            if (!usedPhysRegs.count(physReg)) {
+                                interval->physReg = physReg;
+                                assignedPhys[interval->vreg] = physReg;
+                                usedPhysRegs.insert(physReg);
+                                active.insert(interval);
+                                allocated = true;
+                                break;
+                            }
+                        }
+                        
+                        // 为被溢出的Interval分配溢出槽
+                        if (spillCandidate->spillSlot == -1) {
+                            // 分配新的溢出槽
+                            static int nextSpillSlot = 0;
+                            spillCandidate->spillSlot = nextSpillSlot++;
+                            spillFrameIndex[spillCandidate->vreg] = spillCandidate->spillSlot;
+                        }
+                    }
+                }
+                
+                // 如果当前Interval仍然没有分配，分配溢出槽
+                if (!allocated) {
+                    if (interval->spillSlot == -1) {
+                        static int nextSpillSlot = 0;
+                        interval->spillSlot = nextSpillSlot++;
+                        spillFrameIndex[interval->vreg] = interval->spillSlot;
+                    }
+                }
+            }
+        }
         // ============================================================================
         // 重写 MIR（插入 reload/spill，替换 use/def）
         // ============================================================================
@@ -179,6 +506,92 @@ namespace BE::RA
         //   否则在指令前插入 reload 到一个 scratch，然后用 scratch 替换 use。
         // - 对每条指令枚举 defs：若分配了物理寄存器则直接替换；
         //   否则先将 def 写到一个 scratch，再在指令后插入 spill 到对应 FI。
-        TODO("RA: 调用 Adapter 的接口改写指令");
+
+        // 遍历所有基本块和指令，处理寄存器的替换和溢出
+        for (auto& [bid, block] : func.blocks) {
+            // 使用迭代器遍历，以便在需要时插入指令
+            for (auto it = block->insts.begin(); it != block->insts.end(); ++it) {
+                auto* inst = *it;
+                
+                // 获取指令的use和def寄存器
+                std::vector<BE::Register> uses, defs;
+                BE::Targeting::g_adapter->enumUses(inst, uses);
+                BE::Targeting::g_adapter->enumDefs(inst, defs);
+                
+                // 处理use寄存器
+                for (BE::Register vreg : uses) {
+                    if (assignedPhys.count(vreg)) {
+                        // 已分配物理寄存器，直接替换
+                        BE::Targeting::g_adapter->replaceUse(inst, vreg, assignedPhys[vreg]);
+                    } else if (spillFrameIndex.count(vreg)) {
+                        // 需要溢出，插入reload指令并使用临时物理寄存器
+                        int spillSlot = spillFrameIndex[vreg];
+                        
+                        // 选择临时物理寄存器
+                        int tempReg = -1;
+                        for (int reg : orderedIntRegs) {
+                            // 跳过被调用者保存寄存器
+                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                            if (!isCalleeSaved) {
+                                tempReg = reg;
+                                break;
+                            }
+                        }
+                        
+                        if (tempReg == -1 && !orderedIntRegs.empty()) {
+                            tempReg = orderedIntRegs[0];
+                        }
+                        
+                        if (tempReg != -1) {
+                            // 在当前指令前插入reload指令
+                            BE::Targeting::g_adapter->insertReloadBefore(block, it, tempReg, spillSlot);
+                            
+                            // 替换use寄存器
+                            BE::Targeting::g_adapter->replaceUse(inst, vreg, tempReg);
+                        }
+                    }
+                }
+                
+                // 处理def寄存器
+                for (BE::Register vreg : defs) {
+                    if (assignedPhys.count(vreg)) {
+                        // 已分配物理寄存器，直接替换
+                        BE::Targeting::g_adapter->replaceDef(inst, vreg, assignedPhys[vreg]);
+                    } else if (spillFrameIndex.count(vreg)) {
+                        // 需要溢出，插入spill指令并使用临时物理寄存器
+                        int spillSlot = spillFrameIndex[vreg];
+                        
+                        // 选择临时物理寄存器
+                        int tempReg = -1;
+                        for (int reg : orderedIntRegs) {
+                            // 跳过被调用者保存寄存器
+                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                            if (!isCalleeSaved) {
+                                tempReg = reg;
+                                break;
+                            }
+                        }
+                        
+                        if (tempReg == -1 && !orderedIntRegs.empty()) {
+                            tempReg = orderedIntRegs[0];
+                        }
+                        
+                        if (tempReg != -1) {
+                            // 替换def寄存器为临时物理寄存器
+                            BE::Targeting::g_adapter->replaceDef(inst, vreg, tempReg);
+                            
+                            // 在当前指令后插入spill指令
+                            BE::Targeting::g_adapter->insertSpillAfter(block, it, tempReg, spillSlot);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 清理Interval内存
+        for (auto& [reg, interval] : intervalsMap) {
+            delete interval;
+        }
+    
     }
 }  // namespace BE::RA
