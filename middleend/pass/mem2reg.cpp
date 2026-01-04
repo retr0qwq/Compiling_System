@@ -13,7 +13,7 @@ void Mem2Reg::runOnFunction(Function& function)
 {
     Mem2Reg_1(function);
     Mem2Reg_2(function);
-    Mem2Reg_3(function);
+    //Mem2Reg_3(function);
 }
 
 bool Mem2Reg::Mem2Reg_1(Function& function)
@@ -322,7 +322,7 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
 
         std::unordered_map<AllocaInst*, int> pushCount;
         RegRename Renamer;
-        // 1. 处理本块 PHI 的定义 (Push to Stack)
+        // 处理本块 PHI 的定义 
         for (auto* inst : block->insts) {
             if (inst->opcode == Operator::PHI) {
                 auto* phi = static_cast<PhiInst*>(inst);
@@ -333,7 +333,7 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
             }
         }
 
-        // 2. 处理 Load/Store (更新 renameMap 和 valStack)
+        // 处理 Load/Store 
         for (auto it = block->insts.begin(); it != block->insts.end(); ) {
             auto* inst = *it;
             if (inst->opcode != Operator::PHI) {
@@ -363,8 +363,7 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
             }
             ++it;
         }
-        // --- 重点修改 1：在递归子节点前，填充 CFG 后继的 PHI ---
-        // 此时 valStack.top() 正好代表了变量在当前块结束时的最新值
+        //
         if (block->blockId < cfg->G.size()) {
             for (auto* succBlock : cfg->G[block->blockId]) {
                 for (auto* inst : succBlock->insts) {
@@ -381,7 +380,7 @@ bool Mem2Reg::Mem2Reg_3(Function& function)
             }
         }
 
-        // --- 重点修改 2：递归支配树子节点，传递 renameMap ---
+        //递归支配树子节点，传递 renameMap ---
         if (block->blockId < domTree.size()) {
             for (int childBid : domTree[block->blockId]) {
                 if (cfg->id2block.count(childBid)) {
