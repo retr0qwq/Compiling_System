@@ -429,7 +429,8 @@ namespace BE::RV64
         uint32_t label = static_cast<uint32_t>(labelNode->getImmI64());
 
         BE::Operand* srcOp = nullptr;
-
+        (void)label; 
+        (void)srcOp; 
         // -----------------------------------------
         // 3. PHI incoming value 的 Operand 化
         // -----------------------------------------

@@ -246,6 +246,7 @@ namespace BE::RA
             if (blockRangeIt == blockRange.end()) continue;
             
             int blockStart = blockRangeIt->second.first;
+            (void)blockStart;
             int blockEnd = blockRangeIt->second.second;
             
             // 初始化活跃集合为OUT[block]

@@ -52,11 +52,11 @@ namespace BE::Targeting::RV64
             BE::RV64::Passes::Lowering::PhiEliminationPass phiElim;
             phiElim.runOnModule(m, adapter);
 
-            TODO("如有需要，需在寄存器分配前完成其它伪指令的消解，如移动指令的消解");
+            // TODO("如有需要，需在寄存器分配前完成其它伪指令的消解，如移动指令的消解");
         }
         static void runRAPipeline(BE::Module& m, const BE::Targeting::RV64::RegInfo& regInfo)
         {
-            TODO("使用你实现的寄存器分配器进行寄存器分配");
+            // TODO("使用你实现的寄存器分配器进行寄存器分配");
             BE::RA::LinearScanRA ls;
             ls.allocate(m, regInfo);
         }

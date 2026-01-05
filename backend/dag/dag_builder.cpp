@@ -256,6 +256,41 @@ namespace BE
             SDValue  node = dag.getNode(opc, {vt}, {lhs, rhs});
             setDef(inst.res, node);
         }
+        void DAGBuilder::visit(ME::BrCondInst& inst, SelectionDAG& dag)
+        {
+            // 1. 获取条件值（ICMP/FCMP 的结果）
+            SDValue condVal = getValue(inst.cond, dag, BE::I32); // 假设条件结果是 i32 类型
+
+            // 2. 获取跳转目标标签节点
+            SDValue trueLabelNode  = getValue(inst.trueTar, dag);  // 标签 operand -> SDValue
+            SDValue falseLabelNode = getValue(inst.falseTar, dag); // 同上
+
+            // 3. 构建 BRCOND 节点，链在前面
+            SDValue brCondNode = dag.getNode(
+                static_cast<unsigned>(ISD::BRCOND),        // 节点类型
+                { BE::TOKEN },                             // BRCOND 输出一个 chain
+                { currentChain_, condVal, trueLabelNode, falseLabelNode } // 操作数
+            );
+
+            // 4. 更新 currentChain_，保证后续有副作用的操作顺序正确
+            currentChain_ = brCondNode;
+        }
+
+        void DAGBuilder::visit(ME::BrUncondInst& inst, SelectionDAG& dag)
+        {
+            // 获取目标标签节点
+            SDValue targetNode = getValue(inst.target, dag);
+
+            // 构建无条件分支 BR 节点
+            SDValue brNode = dag.getNode(
+                static_cast<unsigned>(ISD::BR),   // 节点类型
+                { BE::TOKEN },                     // BR 输出 chain
+                { currentChain_, targetNode }      // 操作数
+            );
+
+            // 更新 currentChain_，保证副作用顺序
+            currentChain_ = brNode;
+        }
 
         void DAGBuilder::visit(ME::IcmpInst& inst, SelectionDAG& dag)
         {

@@ -253,29 +253,58 @@ namespace BE::Targeting::RV64
         }
         
     }
+    void BE::Targeting::RV64::InstrAdapter::insertReloadBefore(
+    BE::Block* block,
+    std::deque<BE::MInstruction*>::iterator it,
+    const BE::Register& physReg,
+    int frameIndex) const
+    {
+        if (!block) return;
+
+        BE::MInstruction* reload = nullptr;
+
+        // 根据寄存器类型选择加载指令
+        if (physReg.dt && physReg.dt->dt == BE::DataType::Type::FLOAT) {
+            // 浮点寄存器，使用 FLW / FLD 根据长度
+            if (physReg.dt->dl == BE::DataType::Length::B32)
+                reload = new BE::FILoadInst(physReg, frameIndex, "reload FLW");
+            else
+                reload = new BE::FILoadInst(physReg, frameIndex, "reload FLD");
+        } else {
+            // 整数寄存器，使用 LW / LD 根据长度
+            if (physReg.dt && physReg.dt->dl == BE::DataType::Length::B32)
+                reload = new BE::FILoadInst(physReg, frameIndex, "reload LW");
+            else
+                reload = new BE::FILoadInst(physReg, frameIndex, "reload LD");
+        }
+
+        // 插入到迭代器指向位置之前
+        block->insts.insert(it, reload);
+    }
+
     void InstrAdapter::insertSpillAfter(
     BE::Block* block,
     std::deque<BE::MInstruction*>::iterator it,
     const BE::Register& physReg,
     int frameIndex) const
-{
-    if (!block) return;
-
-    BE::MInstruction* spill = nullptr;
-
-    if (physReg.dt &&  physReg.dt->dt == DataType::Type::FLOAT)
     {
-        spill = new BE::FIStoreInst(physReg, frameIndex, "spill float reg");
-    }
-    else
-    {
-        spill = new BE::FIStoreInst(physReg, frameIndex, "spill int reg");
-    }
+        if (!block) return;
 
-    // 插入到 it 之后
-    if (it != block->insts.end())
-        block->insts.insert(std::next(it), spill);
-    else
-        block->insts.push_back(spill);
+        BE::MInstruction* spill = nullptr;
+
+        if (physReg.dt &&  physReg.dt->dt == DataType::Type::FLOAT)
+        {
+            spill = new BE::FIStoreInst(physReg, frameIndex, "spill float reg");
+        }
+        else
+        {
+            spill = new BE::FIStoreInst(physReg, frameIndex, "spill int reg");
+        }
+
+        // 插入到 it 之后
+        if (it != block->insts.end())
+            block->insts.insert(std::next(it), spill);
+        else
+            block->insts.push_back(spill);
     }
 }  // namespace BE::Targeting::RV64

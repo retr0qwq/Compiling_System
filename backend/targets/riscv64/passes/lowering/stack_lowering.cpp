@@ -29,11 +29,11 @@ namespace BE::RV64::Passes::Lowering
             {
                 if (auto* ti = dynamic_cast<BE::RV64::Instr*>(inst))
                 {
-                    if (!ti->rd.isVreg && ti->rd.rId >= 0) 
+                    if (!ti->rd.isVreg) 
                         usedIntRegs.insert(ti->rd.rId);
-                    if (!ti->rs1.isVreg && ti->rs1.rId >= 0) 
+                    if (!ti->rs1.isVreg) 
                         usedIntRegs.insert(ti->rs1.rId);
-                    if (!ti->rs2.isVreg && ti->rs2.rId >= 0) 
+                    if (!ti->rs2.isVreg) 
                         usedIntRegs.insert(ti->rs2.rId);
                     
                     // 检查浮点寄存器
@@ -57,13 +57,13 @@ namespace BE::RV64::Passes::Lowering
                     if (mv->src && mv->src->ot == BE::Operand::Type::REG)
                     {
                         auto* ro = static_cast<BE::RegOperand*>(mv->src);
-                        if (!ro->reg.isVreg && ro->reg.rId >= 0) 
+                        if (!ro->reg.isVreg) 
                             usedIntRegs.insert(ro->reg.rId);
                     }
                     if (mv->dest && mv->dest->ot == BE::Operand::Type::REG)
                     {
                         auto* ro = static_cast<BE::RegOperand*>(mv->dest);
-                        if (!ro->reg.isVreg && ro->reg.rId >= 0) 
+                        if (!ro->reg.isVreg) 
                             usedIntRegs.insert(ro->reg.rId);
                     }
                 }
