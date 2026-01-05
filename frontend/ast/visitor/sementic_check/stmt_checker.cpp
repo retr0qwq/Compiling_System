@@ -43,7 +43,7 @@ namespace FE::AST
         res &= apply(*this, *(node.body));
 
         Type_t retBase = curFuncRetType->getBaseType();
-        if (retBase != Type_t::VOID && !funcHasReturn) {
+        if (retBase != Type_t::VOID && !funcHasReturn&&node.entry->getName()!="main") {
             errors.emplace_back("Error: Non-void function '" + node.entry->getName() + "' must return a value." + std::string("at line ") + std::to_string(node.line_num));
             res = false;
         }

@@ -33,7 +33,56 @@ namespace BE::RV64
         // 如何做：
         // - 后序遍历：从根节点（无使用者的节点）出发，先访问依赖再访问当前节点
 
-        TODO("实现 DAG 调度：输出拓扑序的节点列表");
+        // TODO("实现 DAG 调度：输出拓扑序的节点列表");
+        std::vector<const DAG::SDNode*> result;
+        std::set<const DAG::SDNode*> visited;
+
+        // 内部递归函数，调度单个节点
+        std::function<void(const DAG::SDNode*)> visitNode = [&](const DAG::SDNode* node) {
+            if (!node || visited.count(node)) return;
+
+            // 先调度 value operands
+            for (unsigned i = 0; i < node->getNumOperands(); ++i)
+            {
+                const auto& op = node->getOperand(i);
+                if (!op) continue;
+
+                bool isChainOperand = false;
+
+                if (op.getNode()->getNumValues() > 1)  // 如果节点有 chain 输出
+                {
+                    // 判断该 operand 是否 chain 类型
+                    if (op.getResNo() == 1) isChainOperand = true;
+                }
+
+                if (!isChainOperand)
+                    visitNode(op.getNode());
+            }
+
+            // 再调度 chain operand
+            for (unsigned i = 0; i < node->getNumOperands(); ++i)
+            {
+                const auto& op = node->getOperand(i);
+                if (!op) continue;
+
+                bool isChainOperand = false;
+                if (op.getNode()->getNumValues() > 1 && op.getResNo() == 1)
+                    isChainOperand = true;
+
+                if (isChainOperand)
+                    visitNode(op.getNode());
+            }
+
+            // 当前节点加入调度结果
+            visited.insert(node);
+            result.push_back(node);
+        };
+
+        // 遍历 DAG 所有节点
+        for (auto* n : dag.getNodes())
+            visitNode(n);
+
+        return result;
     }
 
     void DAGIsel::allocateRegistersForNode(const DAG::SDNode* node)
@@ -221,7 +270,45 @@ namespace BE::RV64
         // - 处理数组维度（arrayDims）与初始值（initList/init）
         // - 浮点数需位转换（FLOAT_TO_INT_BITS）
 
-        TODO("导入全局变量到后端模块");
+        // TODO("导入全局变量到后端模块");
+        for (auto* gv : ir_module_->globalVars)
+        {
+            if (!gv) continue;
+            BE::DataType* beType = nullptr;
+            switch (gv->dt)
+            {
+                case ME::DataType::I32: beType = BE::I32; break;
+                case ME::DataType::I64: beType = BE::I64; break;
+                case ME::DataType::F32: beType = BE::F32; break;
+                default:
+                    ERROR("Unsupported global variable type");
+            }
+
+            auto* bGV = new BE::GlobalVariable(beType, gv->name);
+            // 初始化值（放入 initVals）
+            if (gv->init)
+            {
+                if (gv->dt == ME::DataType::I32 || gv->dt == ME::DataType::I64)
+                {
+                    bGV->initVals.push_back(
+                        static_cast<ME::ImmeI32Operand*>(gv->init)->value
+                    );
+                }
+                else if (gv->dt == ME::DataType::F32)
+                {
+                    int bits = FLOAT_TO_INT_BITS(
+                        static_cast<ME::ImmeF32Operand*>(gv->init)->value
+                    );
+                    bGV->initVals.push_back(bits);
+                }
+            }
+            else
+            {
+                // 无初始化 → 默认 0
+                bGV->initVals.push_back(0);
+            }
+            m_backend_module->globals.push_back(bGV);
+        }
     }
 
     void DAGIsel::collectAllocas(ME::Function* ir_func)
@@ -234,7 +321,31 @@ namespace BE::RV64
         // 遍历函数的所有 IR 指令，找到所有 ALLOCA 指令，计算其需要的栈空间大小，
         // 并在函数级别的栈帧管理中为其分配槽位。
 
-        TODO("收集 alloca 并注册到 frameInfo");
+        // TODO("收集 alloca 并注册到 frameInfo");
+        ctx_.mfunc->frameInfo.clear();
+        ctx_.allocaFI.clear();  // 你之前留的表，现在其实可以不用
+
+        for (auto& [bid, block] : ir_func->blocks)
+        {
+            for (auto* inst : block->insts)
+            {
+                if (inst->opcode != ME::Operator::ALLOCA)
+                    continue;
+
+                auto* ai = static_cast<ME::AllocaInst*>(inst);
+                size_t irRegId = ai->res->getRegNum();
+
+                // 计算需要的字节数
+                int sizeBytes = dataTypeSize(mapType(ai->dt));
+                int alignment = 16; 
+                //  注册为 LocalVar
+                ctx_.mfunc->frameInfo.createLocalObject(
+                    irRegId,
+                    sizeBytes,
+                    alignment
+                );
+            }
+        }
     }
 
     void DAGIsel::setupParameters(ME::Function* ir_func)
@@ -246,7 +357,21 @@ namespace BE::RV64
         // 作用：
         // 遍历 IR 函数定义中的所有参数，为每个参数分配虚拟寄存器，并记录参数的虚拟寄存器映射关系
 
-        TODO("为函数参数创建虚拟寄存器并建立映射");
+        // TODO("为函数参数创建虚拟寄存器并建立映射");
+
+        auto& args = ir_func->funcDef->argRegs;
+
+        for (auto& [argTy, argOp] : args)
+        {
+            // IR 参数的 SSA reg id
+            size_t irRegId = argOp->getRegNum();
+            // IR 类型 -> 后端类型
+            BE::DataType* beTy = mapType(argTy);
+            // 为参数分配虚拟寄存器
+            Register vreg = getOrCreateVReg(irRegId, beTy);
+            // 记录到函数级映射
+            ctx_.vregMap[irRegId] = vreg;
+        }
     }
 
     void DAGIsel::selectCopy(const DAG::SDNode* node, BE::Block* m_block)
@@ -281,8 +406,63 @@ namespace BE::RV64
         // - getOperandReg 对于第一次使用常量的行为是什么，会将立即数加载的指令插入到什么地方？
 
         TODO("选择 PHI 节点：提取前驱与值，生成 PhiInst");
-    }
+        size_t irRegId = node->getIRRegId();
+        BE::DataType* dt = node->getValueType(0);
 
+        Register dst = getOrCreateVReg(irRegId, dt);
+
+        // -----------------------------------------
+        // 2. 创建 MIR PhiInst
+        // -----------------------------------------
+        auto* phi = new BE::PhiInst(dst);
+
+        // -----------------------------------------
+        // 3. 解析 DAG PHI 的操作数
+        //    operands = [LABEL0, VAL0, LABEL1, VAL1, ...]
+        // -----------------------------------------
+        const auto& ops = node->getOperands();
+         for (size_t i = 0; i < ops.size(); i += 2)
+    {
+        const DAG::SDNode* labelNode = ops[i].getNode();
+        const DAG::SDNode* valNode   = ops[i + 1].getNode();
+
+        uint32_t label = static_cast<uint32_t>(labelNode->getImmI64());
+
+        BE::Operand* srcOp = nullptr;
+
+        // -----------------------------------------
+        // 3. PHI incoming value 的 Operand 化
+        // -----------------------------------------
+        if (valNode->hasIRRegId())
+        {
+            Register srcReg = getOrCreateVReg(
+                valNode->getIRRegId(),
+                valNode->getValueType(0)
+            );
+            srcOp = new BE::RegOperand(srcReg);
+        }
+        else if (valNode->hasImmI64())
+        {
+            Register srcReg = getOperandReg(valNode, m_block);
+            srcOp = new BE::RegOperand(srcReg);
+        }
+        else if (valNode->hasFrameIndex())
+        {
+            srcOp = new BE::FrameIndexOperand(valNode->getFrameIndex());
+        }
+        else
+        {
+            ERROR("Unsupported PHI incoming value");
+        }
+
+        // -----------------------------------------
+        // 4. 插入到 block 的 PHI 区
+        // -----------------------------------------
+        m_block->insts.push_front(phi);
+
+        selected_.insert(node);
+    }
+}
     void DAGIsel::selectBinary(const DAG::SDNode* node, BE::Block* m_block)
     {
         if (node->getNumOperands() < 2) return;
@@ -402,7 +582,9 @@ namespace BE::RV64
         // 一元运算（如 NEG、NOT）在基础 DAG 中较少使用。
         // 若你的 IR 或优化中产生了一元节点，可在此处理。
         //
-        TODO("可选：处理一元运算（NEG/NOT 等）");
+        // TODO("可选：处理一元运算（NEG/NOT 等）");
+        (void)node;  
+        (void)m_block;
     }
 
     bool DAGIsel::selectAddress(const DAG::SDNode* addrNode, const DAG::SDNode*& baseNode, int64_t& offset)
@@ -538,7 +720,82 @@ namespace BE::RV64
         // - 同样需要地址选择与立即数范围检查
         // - 操作数：[Chain, Value, Address]
 
-        TODO("选择 STORE：地址折叠 + 生成存储指令");
+        // TODO("选择 STORE：地址折叠 + 生成存储指令");
+        if (node->getNumOperands() < 3) return;
+
+        const DAG::SDNode* valNode  = node->getOperand(1).getNode();
+        const DAG::SDNode* addrNode = node->getOperand(2).getNode();
+
+        Register valReg = getOperandReg(valNode, m_block);
+        // 地址选择
+        const DAG::SDNode* baseNode;
+        int64_t            offset = 0;
+
+        if (selectAddress(addrNode, baseNode, offset))
+        {
+            Register baseReg;
+
+            if (static_cast<DAG::ISD>(baseNode->getOpcode()) == DAG::ISD::FRAME_INDEX)
+            {
+                int fi          = baseNode->getFrameIndex();
+                baseReg         = getVReg(BE::I64);
+                Instr* addrInst = createIInst(Operator::ADDI, baseReg, PR::sp, 0);
+                addrInst->fiop  = new FrameIndexOperand(fi);
+                addrInst->use_ops = true;
+                m_block->insts.push_back(addrInst);
+            }
+            else if (static_cast<DAG::ISD>(baseNode->getOpcode()) == DAG::ISD::SYMBOL &&
+                    baseNode->hasSymbol())
+            {
+                std::string symbol = baseNode->getSymbol();
+                baseReg            = getVReg(BE::I64);
+                Label symbolLabel(symbol, false, true);
+                m_block->insts.push_back(createUInst(Operator::LA, baseReg, symbolLabel));
+            }
+            else
+            {
+                baseReg = getOperandReg(baseNode, m_block);
+            }
+            // 选择 STORE 指令
+            Operator storeOp =
+                (valReg.dt == BE::F32 || valReg.dt == BE::F64)
+                    ? Operator::FSW
+                    : Operator::SW;
+            //  offset 是否能塞进立即数
+            if (offset < -2048 || offset > 2047)
+            {
+                Register offsetReg = getVReg(BE::I64);
+                m_block->insts.push_back(
+                    createMove(new RegOperand(offsetReg),
+                            static_cast<int>(offset),
+                            LOC_STR));
+
+                Register finalBase = getVReg(BE::I64);
+                m_block->insts.push_back(
+                    createRInst(Operator::ADD, finalBase, baseReg, offsetReg));
+
+                m_block->insts.push_back(
+                    createIInst(storeOp, valReg, finalBase, 0));
+            }
+            else
+            {
+                m_block->insts.push_back(
+                    createIInst(storeOp, valReg, baseReg, static_cast<int>(offset)));
+            }
+        }
+        else
+        {
+            // 地址无法折叠：直接用 addrReg
+            Register addrReg = getOperandReg(addrNode, m_block);
+
+            Operator storeOp =
+                (valReg.dt == BE::F32 || valReg.dt == BE::F64)
+                    ? Operator::FSW
+                    : Operator::SW;
+
+            m_block->insts.push_back(
+                createIInst(storeOp, valReg, addrReg, 0));
+        }
     }
 
     void DAGIsel::selectICmp(const DAG::SDNode* node, BE::Block* m_block)
@@ -547,7 +804,15 @@ namespace BE::RV64
         // TODO: 选择整数比较节点（ICMP）
         // ============================================================================
 
-        TODO("选择 ICMP：根据条件生成比较指令序列");
+        // TODO("选择 ICMP：根据条件生成比较指令序列");
+        BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
+        BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
+
+        // 取出 IR cond 协议值
+        int64_t irCond = node->getImmI64();
+        CondCode cc = mapIcmpCond(irCond);
+        // 记录到 isel 状态
+        lastCmp_ = { lhs, rhs, cc, false };
     }
 
     void DAGIsel::selectFCmp(const DAG::SDNode* node, BE::Block* m_block)
@@ -556,7 +821,17 @@ namespace BE::RV64
         // TODO: 选择浮点比较节点（FCMP）
         // ============================================================================
 
-        TODO("选择 FCMP：根据条件生成浮点比较指令");
+        // TODO("选择 FCMP：根据条件生成浮点比较指令");
+        BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
+        BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
+
+        int64_t irCond = node->getImmI64();
+
+        // 使用静态函数映射
+        CondCode cc = mapFcmpCond(irCond);
+
+        // 保存比较信息
+        lastCmp_ = { lhs, rhs, cc, true };   // isFloat = true
     }
 
     void DAGIsel::selectBranch(const DAG::SDNode* node, BE::Block* m_block)
@@ -570,7 +845,73 @@ namespace BE::RV64
         // - BR 直接跳转，用 JAL x0, label
         // - BRCOND 需判断条件（非 0 为真），生成 BNE + JAL 序列
 
-        TODO("选择分支：区分 BR/BRCOND 生成跳转指令");
+        // TODO("选择分支：区分 BR/BRCOND 生成跳转指令");
+        using namespace BE::DAG;
+
+        ISD opc = static_cast<ISD>(node->getOpcode());
+
+        // 无条件跳转 BR
+        if(opc == ISD::BR) {
+            const DAG::SDNode* destNode = node->getOperand(1).getNode();
+            if(!destNode) return;
+
+            BE::RV64::Label labelId(static_cast<int>(destNode->getId()), false);
+
+            // JAL rd=0, label
+            m_block->insts.push_back(
+                createJInst_impl(Operator::JAL, 0 /* rd=zero */, labelId, "uncond branch")
+            );
+            return;
+        }
+
+        // 条件跳转 BRCOND
+        if(opc == ISD::BRCOND) {
+            const DAG::SDNode* trueNode  = node->getOperand(2).getNode();
+            const DAG::SDNode* falseNode = node->getOperand(3).getNode();
+            if(!trueNode || !falseNode) return;
+
+            uint32_t trueLabel  = trueNode->getId();
+            uint32_t falseLabel = falseNode->getId();
+            BE::RV64::Label trueLbl(static_cast<int>(trueLabel), false);
+            BE::RV64::Label falseLbl(static_cast<int>(falseLabel), false);
+            // 条件跳转到 True
+            Operator op;
+            if(lastCmp_.isFloat) {
+                // 浮点条件映射
+                switch(lastCmp_.cond) {
+                    case CondCode::EQ: op = Operator::FEQ_S; break;
+                    case CondCode::LT: op = Operator::FLT_S; break;
+                    case CondCode::LE: op = Operator::FLE_S; break;
+                    default:
+                        assert(false && "unsupported float cond for branch");
+                }
+            } else {
+                // 整数条件映射
+                switch(lastCmp_.cond) {
+                    case CondCode::EQ:  op = Operator::BEQ; break;
+                    case CondCode::NE:  op = Operator::BNE; break;
+                    case CondCode::LT:  op = Operator::BLT; break;
+                    case CondCode::LE:  op = Operator::BLE; break;
+                    case CondCode::GT:  op = Operator::BGT; break;
+                    case CondCode::GE:  op = Operator::BGE; break;
+                    case CondCode::ULT: op = Operator::BLTU; break;
+                    case CondCode::ULE: op = Operator::BLEU; break;
+                    case CondCode::UGT: op = Operator::BGTU; break;
+                    case CondCode::UGE: op = Operator::BGEU; break;
+                    default: assert(false && "unsupported int cond for branch");
+                }
+            }
+
+            m_block->insts.push_back(
+                createBInst_impl(op, lastCmp_.lhs, lastCmp_.rhs, trueLbl, "branch cond")
+            );
+            // 无条件跳转到 False
+            m_block->insts.push_back(
+                createJInst_impl(Operator::JAL, 0 /* rd=zero */, falseLbl, "branch false")
+            );
+
+            return;
+        }
     }
 
     void DAGIsel::selectCall(const DAG::SDNode* node, BE::Block* m_block)
@@ -592,8 +933,56 @@ namespace BE::RV64
         // - 超出的参数 → 存储到栈上（SP + 0, SP + 8, ...）
         // - 返回值从 a0/fa0 搬运到目标寄存器
 
-        TODO("选择 CALL：参数传递 + 生成调用指令 + 返回值处理");
+        // TODO("选择 CALL：参数传递 + 生成调用指令 + 返回值处理");
+        const DAG::SDNode* calleeNode = node->getOperand(1).getNode();
+        if (!calleeNode || !calleeNode->hasSymbol()) return;
+
+        const std::string& funcName = calleeNode->getSymbol();
+
+        // 2. 参数求值（从 operand[2] 开始）
+        std::vector<BE::Operand*> argOps;
+
+        for (unsigned i = 2; i < node->getNumOperands(); ++i)
+        {
+            const DAG::SDNode* argNode = node->getOperand(i).getNode();
+
+            // 用你现有逻辑获取一个寄存器
+            BE::Register argReg = getOperandReg(argNode, m_block);
+            argOps.push_back(new BE::RegOperand(argReg));
+        }
+
+        // 3. 用 MOVE 表示“实参传递”（不决定 ABI）
+        //    这里的目标寄存器可以是“调用约定虚拟寄存器”
+        for (size_t i = 0; i < argOps.size(); ++i)
+        {
+            BE::Register paramVReg = BE::getVReg(argOps[i]->dt);
+            m_block->insts.push_back(
+                new BE::MoveInst(argOps[i], new BE::RegOperand(paramVReg),
+                                "call arg " + std::to_string(i))
+            );
+        }
+
+        // 4. 生成 TARGET call 占位指令
+        m_block->insts.push_back(
+            new BE::PseudoInst(BE::InstKind::TARGET, "call " + funcName)
+        );
+
+        // 5. 处理返回值（如果有）
+        if (node->getNumValues() > 0)
+        {
+            BE::Register dst = nodeToVReg_.at(node);
+
+            // 约定：call 的返回值在一个新的 vreg 中
+            BE::Register callRet = BE::getVReg(dst.dt);
+
+            m_block->insts.push_back(
+                new BE::MoveInst(new BE::RegOperand(callRet),
+                                new BE::RegOperand(dst),
+                                "call ret")
+            );
+        }
     }
+
 
     void DAGIsel::selectRet(const DAG::SDNode* node, BE::Block* m_block)
     {
@@ -623,7 +1012,7 @@ namespace BE::RV64
         // 作用：
         // 为类型转换节点生成目标相关的转换指令。
 
-        TODO("选择类型转换：生成 FCVT 或扩展指令");
+        // TODO("选择类型转换：生成 FCVT 或扩展指令");
     }
 
     void DAGIsel::selectNode(const DAG::SDNode* node, BE::Block* m_block)
@@ -693,7 +1082,24 @@ namespace BE::RV64
         //   * 按调度顺序遍历节点，调用 selectNode 生成具体指令
         //   * 使用已选择集合避免重复选择
 
-        TODO("选择基本块：调度 + 分配寄存器 + 生成指令");
+        // TODO("选择基本块：调度 + 分配寄存器 + 生成指令");
+        nodeToVReg_.clear();
+        selected_.clear();
+
+        auto it = ctx_.mfunc->blocks.find(ir_block->blockId);
+        ASSERT(it != ctx_.mfunc->blocks.end() && "Missing backend block");
+
+        BE::Block* m_block = it->second;
+        std::vector<const DAG::SDNode*> schedule = scheduleDAG(dag);
+        for (const DAG::SDNode* node : schedule)
+        {
+            allocateRegistersForNode(node);
+        }
+        for (const DAG::SDNode* node : schedule)
+        {
+            if (selected_.count(node)) continue;
+            selectNode(node, m_block);
+        }
     }
 
     void DAGIsel::selectFunction(ME::Function* ir_func)
@@ -712,14 +1118,36 @@ namespace BE::RV64
         //
         // 关键步骤：
         // 1. 重置上下文
+        ctx_ = FunctionContext{};
+        nodeToVReg_.clear();
+        selected_.clear();
         // 2. 创建后端函数对象
+        auto* mfunc = new BE::Function(ir_func->funcDef->funcName);
+        m_backend_module->functions.push_back(mfunc);
+        ctx_.mfunc = mfunc;
         // 3. 计算传出参数区大小
+        collectAllocas(ir_func);
         // 4. 收集局部变量
-        // 5. 创建所有基本块对象
-        // 6. 为参数分配虚拟寄存器
-        // 7. 对每个基本块做指令选择
 
-        TODO("选择函数：初始化上下文 + 栈帧管理 + 逐块选择");
+        // 5. 创建所有基本块对象
+        for (auto& [label, ir_block] : ir_func->blocks)
+        {
+            auto* mblock = new BE::Block(label);
+            ctx_.mfunc->blocks.emplace(label, mblock);
+
+        }
+        // 6. 为参数分配虚拟寄存器
+        setupParameters(ir_func);
+        // 7. 对每个基本块做指令选择
+        for (auto& [label, ir_block] : ir_func->blocks)
+        {
+            DAG::SelectionDAG dag;
+            DAG::DAGBuilder builder;
+            builder.visit(*ir_block, dag);
+            selectBlock(ir_block, dag);
+        }
+        // TODO("选择函数：初始化上下文 + 栈帧管理 + 逐块选择");
+
     }
 
     void DAGIsel::runImpl()

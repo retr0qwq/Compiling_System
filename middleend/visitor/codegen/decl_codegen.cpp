@@ -32,9 +32,13 @@ namespace ME
         {
             auto* lval = dynamic_cast<FE::AST::LeftValExpr*>(decl->lval);
             FE::Sym::Entry* entry = lval->entry;
-
+            lval->attr.val.value.type = node.type;
             size_t ptrReg = getNewRegId();
-            insert(createAllocaInst(t, ptrReg));
+            auto* allocaInst = createAllocaInst(t, ptrReg);
+            if (!curFunc->blocks.empty()) {
+                Block* entryBlock = curFunc->blocks[0]; // 函数的入口块 
+                entryBlock->insts.insert(entryBlock->insts.begin(), allocaInst); 
+            }
             name2reg.addSymbol(entry, ptrReg);
 
             reg2attr[ptrReg] = FE::AST::VarAttr{node.type};

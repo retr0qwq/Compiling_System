@@ -23,7 +23,6 @@ namespace FE::AST
         }
 
         bool allConst = true;
-        node.isLval = true;
         std::vector<int> idxValues;
         size_t dimleft = totalDims - dimCount;
         TypeFactory& tf = TypeFactory::getInstance();
@@ -71,7 +70,7 @@ namespace FE::AST
                     pos = pos * attr->arrayDims[i] + idx;
                 }
                 if (pos < static_cast<int>(attr->initList.size())) {
-                    node.attr.val = ExprValue(attr->initList[pos], true);
+                    node.attr.val = ExprValue(attr->initList[pos],  node.attr.val.isConstexpr);
                 } else {
                     errors.emplace_back("Error: Internal array initList size mismatch."  + std::string("at line ") + std::to_string(node.line_num));
                     node.attr.val.isConstexpr = false;
@@ -112,8 +111,8 @@ namespace FE::AST
             return false;
         }
         if(node.op == Operator::NOT) {
-            if(expr_type->getBaseType() != Type_t::BOOL) {
-                errors.emplace_back("Error: Invalid operand type for '!' operator."  + std::string("at line ") + std::to_string(node.line_num));
+            if(expr_type->getBaseType() == Type_t::VOID) {
+                errors.emplace_back("Error: Void type cannot be used in unary expressions." + std::string("at line ") + std::to_string(node.line_num));
                 return false;
             }
         }
@@ -176,7 +175,7 @@ namespace FE::AST
             case Operator::EQ: case Operator::NEQ:
                 break;
             case Operator::ASSIGN:{
-                if (dynamic_cast<LeftValExpr*>(node.lhs) == nullptr||!dynamic_cast<LeftValExpr*>(node.lhs)->isLval) {
+                if (dynamic_cast<LeftValExpr*>(node.lhs) == nullptr) {
                     errors.emplace_back("Error: Left-hand side of assignment must be a left value." + std::string("at line ") + std::to_string(node.line_num));
                     return false;
                 }

@@ -86,6 +86,9 @@ namespace FE::AST
         }
         symTable.addSymbol_impl(entry, varAttr); 
         node.attr.val=node.lval->attr.val;
+        if (symTable.isGlobalScope_impl()) {
+            glbSymbols[entry] = *symTable.getSymbol_impl(entry);
+        }
         if (node.init) {
             res &= apply(*this, *node.init);
             // 类型检查          

@@ -11,18 +11,18 @@ namespace ME
         FE::AST::VarAttr* attr = nullptr;
         size_t varReg = static_cast<size_t>(-1);
         Operand* ptrOp = nullptr;
-        // 若为全局变量
-        if (glbSymbols.find(node.entry) != glbSymbols.end())
-        {
-            attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
-            ptrOp = getGlobalOperand(node.entry->getName());
-        }
-        else if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
+        if (name2reg.getReg(node.entry) != static_cast<size_t>(-1)) // 局部变量
         {
             attr   = &(reg2attr[name2reg.getReg(node.entry)]);
             varReg = name2reg.getReg(node.entry);
             lval2ptr[&node] = getRegOperand(varReg);
             ptrOp = lval2ptr[&node];
+        }
+        else if (glbSymbols.find(node.entry) != glbSymbols.end()) // 全局变量
+        {
+            attr   = const_cast<FE::AST::VarAttr*>(&(glbSymbols.at(node.entry)));
+            ptrOp = getGlobalOperand(node.entry->getName());
+            lval2ptr[&node] = ptrOp;
         }
         else
         {
@@ -54,7 +54,7 @@ namespace ME
         if (!node.isLval){
             size_t resReg = getNewRegId();
             auto loadInst = createLoadInst(convert(attr->type), ptrOp, resReg);
-             insert(loadInst);
+            insert(loadInst);
         }
     }
 
@@ -200,8 +200,15 @@ namespace ME
     {
         // TODO(Lab 3-2): 生成短路与的基本块与条件分支
         // TODO("Lab3-2: Implement logical AND codegen");
-                size_t parenttrue = node.trueTar;
+        size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
+        Block* rhsBlock = createBlock();
+        Block* curBlock = this->curBlock;
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
+        lhs.trueTar = rhsBlock->blockId;
+        lhs.falseTar = parentfalse;
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
         apply(*this, lhs, m);
         size_t lhsReg = getMaxReg();
         DataType lhsType = convert(lhs.attr.val.value.type);
@@ -214,12 +221,6 @@ namespace ME
                 insert(inst);
             lhsReg = getMaxReg();
         }
-        Block* rhsBlock = createBlock();
-        Block* cur = curBlock;
-        lhs.trueTar = rhsBlock->blockId;
-        lhs.falseTar = parentfalse;
-        rhs.trueTar = parenttrue;
-        rhs.falseTar = parentfalse;
         insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
         // 进入 rhsBlock
         curFunc->blocks[rhsBlock->blockId] = rhsBlock;
@@ -234,8 +235,7 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
-        // 回到原来的块
-        enterBlock(cur);
+        enterBlock(curBlock);
     }
     void ASTCodeGen::handleLogicalOr(
         FE::AST::BinaryExpr& node, FE::AST::ExprNode& lhs, FE::AST::ExprNode& rhs, Module* m)
@@ -244,6 +244,13 @@ namespace ME
         //TODO("Lab3-2: Implement logical OR codegen");
         size_t parenttrue = node.trueTar;
         size_t parentfalse = node.falseTar;
+        Block* rhsBlock = createBlock();
+        Block* curBlock = this->curBlock;
+        curFunc->blocks[rhsBlock->blockId] = rhsBlock;
+        lhs.trueTar = parenttrue;
+        lhs.falseTar = rhsBlock->blockId; 
+        rhs.trueTar = parenttrue;
+        rhs.falseTar = parentfalse;
         apply(*this, lhs, m);
         size_t lhsReg = getMaxReg();
         DataType lhsType = convert(lhs.attr.val.value.type);
@@ -256,12 +263,6 @@ namespace ME
                 insert(inst);
             lhsReg = getMaxReg();
         }
-        Block* rhsBlock = createBlock();
-        Block* cur = curBlock;
-        lhs.trueTar = parenttrue;
-        lhs.falseTar = rhsBlock->blockId; 
-        rhs.trueTar = parenttrue;
-        rhs.falseTar = parentfalse;
         insert(createBranchInst(lhsReg, lhs.trueTar, lhs.falseTar));
         // 进入 rhsBlock
         curFunc->blocks[rhsBlock->blockId] = rhsBlock;
@@ -276,8 +277,7 @@ namespace ME
             rhsReg = getMaxReg();
         }
         insert(createBranchInst(rhsReg, rhs.trueTar, rhs.falseTar));
-        // 回到原来的块
-        enterBlock(cur);
+        enterBlock(curBlock);
     }
     void ASTCodeGen::visit(FE::AST::BinaryExpr& node, Module* m)
     {
@@ -314,29 +314,43 @@ namespace ME
         // TODO("Lab3-2: Implement CallExpr IR generation");
         auto* funcDecl = funcDecls.at(node.func);
         CallInst::argList args;
-        for (size_t i = 0; i < node.args->size(); i++)
-        {
-            auto* argExpr = node.args->at(i);
-            apply(*this, *argExpr, m);
-            size_t argReg = getMaxReg();
-            DataType argType = convert(argExpr->attr.val.value.type);
-            Type* paramType = funcDecl->params->at(i)->type;
-            DataType paramDT = convert(paramType);
-            if (argType != paramDT) {
-                auto convInsts = createTypeConvertInst(argType, paramDT, argReg);
-                for (auto* inst : convInsts) insert(inst);
-                argReg = getMaxReg();
+
+        // 如果函数有参数且 node.args 非空
+        if (node.args && !node.args->empty()) {
+            for (size_t i = 0; i < node.args->size(); i++) {
+                auto* argExpr = node.args->at(i);
+                apply(*this, *argExpr, m);                  // 生成参数 IR
+                size_t argReg = getMaxReg();                // 获取参数寄存器
+                DataType argType = convert(argExpr->attr.val.value.type);
+                Type* paramType = funcDecl->params->at(i)->type;
+                DataType paramDT = convert(paramType);
+
+                // 参数类型转换
+                if (argType != paramDT) {
+                    auto convInsts = createTypeConvertInst(argType, paramDT, argReg);
+                    for (auto* inst : convInsts) insert(inst);
+                    argReg = getMaxReg();
+                }
+
+                args.push_back(CallInst::argPair(paramDT, getRegOperand(argReg)));
             }
-            args.push_back(CallInst::argPair(paramDT, getRegOperand(argReg)));
         }
         DataType retType = convert(funcDecl->retType);
-        if (retType == DataType::VOID) {
-            insert(createCallInst(retType, node.func->getName(), args));
-        } else {
+        if (!args.empty() && retType != DataType::VOID) {
             size_t retReg = getNewRegId();
             insert(createCallInst(retType, node.func->getName(), args, retReg));
-            // 保存返回值 VarAttr
             reg2attr[retReg] = VarAttr{funcDecl->retType};
+        } 
+        else if (!args.empty() && retType == DataType::VOID) {
+            insert(createCallInst(retType, node.func->getName(), args));
+        } 
+        else if (args.empty() && retType != DataType::VOID) {
+            size_t retReg = getNewRegId();
+            insert(createCallInst(retType, node.func->getName(), retReg));
+            reg2attr[retReg] = VarAttr{funcDecl->retType};
+        } 
+        else { // args.empty() && retType == VOID
+            insert(createCallInst(retType, node.func->getName()));
         }
     }
 

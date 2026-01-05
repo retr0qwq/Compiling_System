@@ -73,10 +73,10 @@ namespace BE::Targeting::RV64
         static BE::Targeting::RV64::RegInfo      s_regInfo;
         BE::Targeting::setTargetInstrAdapter(&s_adapter);
 
-        TODO("选择一种 Instruction Selector 实现，并完成指令选择");
-        // BE::RV64::DAGIsel isel(ir, backend, this);
+        // TODO("选择一种 Instruction Selector 实现，并完成指令选择");
+        BE::RV64::DAGIsel isel(ir, backend, this);
         // BE::RV64::IRIsel isel(ir, backend, this);
-        // isel.run();
+        isel.run();
 
         runPreRAPasses(*backend, &s_adapter);
         runRAPipeline(*backend, s_regInfo);
