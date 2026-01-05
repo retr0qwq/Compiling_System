@@ -209,19 +209,51 @@ namespace BE::Targeting::RV64
 
     void InstrAdapter::enumPhysRegs(BE::MInstruction* inst, std::vector<BE::Register>& out) const
     {
-        // TODO("统计该指令中出现的“物理寄存器，存入vector out中");
         if (!inst) return;
 
+        // 如果是真实机器指令，假设有 rd, rs1, rs2
         if (auto* ri = dynamic_cast<Instr*>(inst))
         {
-            if (!ri->rd.isVreg) out.push_back(ri->rd);
+            if (!ri->rd.isVreg)  out.push_back(ri->rd);
             if (!ri->rs1.isVreg) out.push_back(ri->rs1);
             if (!ri->rs2.isVreg) out.push_back(ri->rs2);
             return;
         }
-    }
 
-    void InstrAdapter::insertReloadBefore(
+        // FILoadInst: 目标寄存器是物理寄存器
+        if (auto* li = dynamic_cast<BE::FILoadInst*>(inst))
+        {
+            if (!li->dest.isVreg) out.push_back(li->dest);
+            return;
+        }
+
+        // FIStoreInst: 源寄存器是物理寄存器
+        if (auto* si = dynamic_cast<BE::FIStoreInst*>(inst))
+        {
+            if (!si->src.isVreg) out.push_back(si->src);
+            return;
+        }
+
+        // MoveInst: 取 src/dest，如果是寄存器 Operand，可以扩展
+        if (auto* mi = dynamic_cast<BE::MoveInst*>(inst))
+        {
+            if (auto* rdst = dynamic_cast<BE::RegOperand*>(mi->dest))
+                if (!rdst->reg.isVreg) out.push_back(rdst->reg);
+
+            if (auto* rsrc = dynamic_cast<BE::RegOperand*>(mi->src))
+                if (!rsrc->reg.isVreg) out.push_back(rsrc->reg);
+            return;
+        }
+
+        // PhiInst: resReg 是物理寄存器
+        if (auto* phi = dynamic_cast<BE::PhiInst*>(inst))
+        {
+            if (!phi->resReg.isVreg) out.push_back(phi->resReg);
+            return;
+        }
+        
+    }
+    void InstrAdapter::insertSpillAfter(
     BE::Block* block,
     std::deque<BE::MInstruction*>::iterator it,
     const BE::Register& physReg,
@@ -229,23 +261,21 @@ namespace BE::Targeting::RV64
 {
     if (!block) return;
 
-    BE::MInstruction* reload = nullptr;
+    BE::MInstruction* spill = nullptr;
 
-    // 判断寄存器类型：整数/浮点
-    bool isFloat = (physReg.dt && physReg.dt->isFloat()); // 假设你有 dt->isFloat() 方法
-    if (isFloat) {
-        // 浮点寄存器加载
-        reload = createIInst(Operator::FLW, physReg, BE::Register(BE::RV64::zeroRegId()), frameIndex);
-    } else {
-        // 整数寄存器加载
-        reload = createIInst(Operator::LD, physReg, BE::Register(BE::RV64::spRegId()), frameIndex);
+    if (physReg.dt &&  physReg.dt->dt == DataType::Type::FLOAT)
+    {
+        spill = new BE::FIStoreInst(physReg, frameIndex, "spill float reg");
+    }
+    else
+    {
+        spill = new BE::FIStoreInst(physReg, frameIndex, "spill int reg");
     }
 
-    // 插入到当前指令前面
-    block->insts.insert(it, reload);
-}
-    void InstrAdapter::insertSpillAfter(
-        BE::Block* block, std::deque<BE::MInstruction*>::iterator it, const BE::Register& physReg, int frameIndex) const
-    {
-        // TODO("实现 insertSpillAfter");
+    // 插入到 it 之后
+    if (it != block->insts.end())
+        block->insts.insert(std::next(it), spill);
+    else
+        block->insts.push_back(spill);
+    }
 }  // namespace BE::Targeting::RV64
