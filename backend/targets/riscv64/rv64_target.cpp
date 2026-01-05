@@ -49,16 +49,16 @@ namespace BE::Targeting::RV64
             frameLowering.runOnModule(m);
 
             // 对实现了 mem2reg 优化的同学，还需完成 Phi Elimination
-            // BE::RV64::Passes::Lowering::PhiEliminationPass phiElim;
-            // phiElim.runOnModule(m, adapter);
+            BE::RV64::Passes::Lowering::PhiEliminationPass phiElim;
+            phiElim.runOnModule(m, adapter);
 
             TODO("如有需要，需在寄存器分配前完成其它伪指令的消解，如移动指令的消解");
         }
         static void runRAPipeline(BE::Module& m, const BE::Targeting::RV64::RegInfo& regInfo)
         {
             TODO("使用你实现的寄存器分配器进行寄存器分配");
-            // BE::RA::LinearScanRA ls;
-            // ls.allocate(m, regInfo);
+            BE::RA::LinearScanRA ls;
+            ls.allocate(m, regInfo);
         }
         static void runPostRAPasses(BE::Module& m)
         {
