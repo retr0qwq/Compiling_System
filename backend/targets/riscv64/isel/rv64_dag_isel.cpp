@@ -805,7 +805,14 @@ namespace BE::RV64
         // ============================================================================
 
         // TODO("选择 ICMP：根据条件生成比较指令序列");
-        
+        BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
+        BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
+
+        // 取出 IR cond 协议值
+        int64_t irCond = node->getImmI64();
+        CondCode cc = mapIcmpCond(irCond);
+        // 记录到 isel 状态
+        lastCmp_ = { lhs, rhs, cc, false };
     }
 
     void DAGIsel::selectFCmp(const DAG::SDNode* node, BE::Block* m_block)
@@ -815,6 +822,16 @@ namespace BE::RV64
         // ============================================================================
 
         // TODO("选择 FCMP：根据条件生成浮点比较指令");
+        BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
+        BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
+
+        int64_t irCond = node->getImmI64();
+
+        // 使用静态函数映射
+        CondCode cc = mapFcmpCond(irCond);
+
+        // 保存比较信息
+        lastCmp_ = { lhs, rhs, cc, true };   // isFloat = true
     }
 
     void DAGIsel::selectBranch(const DAG::SDNode* node, BE::Block* m_block)
@@ -828,60 +845,73 @@ namespace BE::RV64
         // - BR 直接跳转，用 JAL x0, label
         // - BRCOND 需判断条件（非 0 为真），生成 BNE + JAL 序列
 
-        TODO("选择分支：区分 BR/BRCOND 生成跳转指令");
-        using DAG::ISD;
+        // TODO("选择分支：区分 BR/BRCOND 生成跳转指令");
+        using namespace BE::DAG;
 
-        if (node->getOpcode() == static_cast<unsigned>(ISD::BR))
-        {
-            auto* labelNode = node->getOperand(0).getNode();
-            int labelId = labelNode->getImmI64();
+        ISD opc = static_cast<ISD>(node->getOpcode());
 
-            auto* inst = new BE::MInstruction(
-                BE::Operator::JAL,
-                {
-                    BE::Register::zero(),                 // rd = x0
-                    new BE::LabelOperand(labelId)
-                }
+        // 无条件跳转 BR
+        if(opc == ISD::BR) {
+            const DAG::SDNode* destNode = node->getOperand(1).getNode();
+            if(!destNode) return;
+
+            BE::RV64::Label labelId(static_cast<int>(destNode->getId()), false);
+
+            // JAL rd=0, label
+            m_block->insts.push_back(
+                createJInst_impl(Operator::JAL, 0 /* rd=zero */, labelId, "uncond branch")
             );
-
-            m_block->insts.push_back(inst);
             return;
         }
 
-        if (node->getOpcode() == static_cast<unsigned>(ISD::BRCOND))
-        {
-            auto* condNode  = node->getOperand(0).getNode();
-            auto* trueNode  = node->getOperand(1).getNode();
-            auto* falseNode = node->getOperand(2).getNode();
+        // 条件跳转 BRCOND
+        if(opc == ISD::BRCOND) {
+            const DAG::SDNode* trueNode  = node->getOperand(2).getNode();
+            const DAG::SDNode* falseNode = node->getOperand(3).getNode();
+            if(!trueNode || !falseNode) return;
 
-            BE::Register condReg = getOperandReg(condNode, m_block);
-
-            int trueLabel  = trueNode->getImmI64();
-            int falseLabel = falseNode->getImmI64();
-
-            auto* bne = new BE::MInstruction(
-                BE::Operator::BNE,
-                {
-                    condReg,
-                    BE::Register::zero(),
-                    new BE::LabelOperand(trueLabel)
+            uint32_t trueLabel  = trueNode->getId();
+            uint32_t falseLabel = falseNode->getId();
+            BE::RV64::Label trueLbl(static_cast<int>(trueLabel), false);
+            BE::RV64::Label falseLbl(static_cast<int>(falseLabel), false);
+            // 条件跳转到 True
+            Operator op;
+            if(lastCmp_.isFloat) {
+                // 浮点条件映射
+                switch(lastCmp_.cond) {
+                    case CondCode::EQ: op = Operator::FEQ_S; break;
+                    case CondCode::LT: op = Operator::FLT_S; break;
+                    case CondCode::LE: op = Operator::FLE_S; break;
+                    default:
+                        assert(false && "unsupported float cond for branch");
                 }
+            } else {
+                // 整数条件映射
+                switch(lastCmp_.cond) {
+                    case CondCode::EQ:  op = Operator::BEQ; break;
+                    case CondCode::NE:  op = Operator::BNE; break;
+                    case CondCode::LT:  op = Operator::BLT; break;
+                    case CondCode::LE:  op = Operator::BLE; break;
+                    case CondCode::GT:  op = Operator::BGT; break;
+                    case CondCode::GE:  op = Operator::BGE; break;
+                    case CondCode::ULT: op = Operator::BLTU; break;
+                    case CondCode::ULE: op = Operator::BLEU; break;
+                    case CondCode::UGT: op = Operator::BGTU; break;
+                    case CondCode::UGE: op = Operator::BGEU; break;
+                    default: assert(false && "unsupported int cond for branch");
+                }
+            }
+
+            m_block->insts.push_back(
+                createBInst_impl(op, lastCmp_.lhs, lastCmp_.rhs, trueLbl, "branch cond")
+            );
+            // 无条件跳转到 False
+            m_block->insts.push_back(
+                createJInst_impl(Operator::JAL, 0 /* rd=zero */, falseLbl, "branch false")
             );
 
-            auto* jal = new BE::MInstruction(
-                BE::Operator::JAL,
-                {
-                    BE::Register::zero(),
-                    new BE::LabelOperand(falseLabel)
-                }
-            );
-
-            m_block->insts.push_back(bne);
-            m_block->insts.push_back(jal);
             return;
         }
-
-        ERROR("selectBranch: unsupported opcode");
     }
 
     void DAGIsel::selectCall(const DAG::SDNode* node, BE::Block* m_block)
@@ -903,49 +933,56 @@ namespace BE::RV64
         // - 超出的参数 → 存储到栈上（SP + 0, SP + 8, ...）
         // - 返回值从 a0/fa0 搬运到目标寄存器
 
-        TODO("选择 CALL：参数传递 + 生成调用指令 + 返回值处理");
-        using DAG::ISD;
+        // TODO("选择 CALL：参数传递 + 生成调用指令 + 返回值处理");
+        const DAG::SDNode* calleeNode = node->getOperand(1).getNode();
+        if (!calleeNode || !calleeNode->hasSymbol()) return;
 
-        auto* calleeNode = node->getOperand(0).getNode();
         const std::string& funcName = calleeNode->getSymbol();
 
-        unsigned numArgs = node->getNumOperands() - 1;
+        // 2. 参数求值（从 operand[2] 开始）
+        std::vector<BE::Operand*> argOps;
 
-        for (unsigned i = 0; i < numArgs; ++i)
+        for (unsigned i = 2; i < node->getNumOperands(); ++i)
         {
-            auto* argNode = node->getOperand(i + 1).getNode();
+            const DAG::SDNode* argNode = node->getOperand(i).getNode();
+
+            // 用你现有逻辑获取一个寄存器
             BE::Register argReg = getOperandReg(argNode, m_block);
-
-            BE::Register physArg = BE::Register::arg(i); // a0, a1, ...
-
-            auto* mv = new BE::MInstruction(
-                BE::Operator::MOV,
-                { physArg, argReg }
-            );
-
-            m_block->insts.push_back(mv);
+            argOps.push_back(new BE::RegOperand(argReg));
         }
 
-        auto* call = new BE::MInstruction(
-            BE::Operator::CALL,
-            { new BE::SymbolOperand(funcName) }
+        // 3. 用 MOVE 表示“实参传递”（不决定 ABI）
+        //    这里的目标寄存器可以是“调用约定虚拟寄存器”
+        for (size_t i = 0; i < argOps.size(); ++i)
+        {
+            BE::Register paramVReg = BE::getVReg(argOps[i]->dt);
+            m_block->insts.push_back(
+                new BE::MoveInst(argOps[i], new BE::RegOperand(paramVReg),
+                                "call arg " + std::to_string(i))
+            );
+        }
+
+        // 4. 生成 TARGET call 占位指令
+        m_block->insts.push_back(
+            new BE::PseudoInst(BE::InstKind::TARGET, "call " + funcName)
         );
 
-        m_block->insts.push_back(call);
-
+        // 5. 处理返回值（如果有）
         if (node->getNumValues() > 0)
         {
             BE::Register dst = nodeToVReg_.at(node);
-            BE::Register ret = BE::Register::arg(0); // a0
 
-            auto* mv = new BE::MInstruction(
-                BE::Operator::MOV,
-                { dst, ret }
+            // 约定：call 的返回值在一个新的 vreg 中
+            BE::Register callRet = BE::getVReg(dst.dt);
+
+            m_block->insts.push_back(
+                new BE::MoveInst(new BE::RegOperand(callRet),
+                                new BE::RegOperand(dst),
+                                "call ret")
             );
-
-            m_block->insts.push_back(mv);
         }
     }
+
 
     void DAGIsel::selectRet(const DAG::SDNode* node, BE::Block* m_block)
     {

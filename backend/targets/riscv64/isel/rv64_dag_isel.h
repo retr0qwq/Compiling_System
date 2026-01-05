@@ -26,6 +26,14 @@ namespace BE::Targeting
 
 namespace BE::RV64
 {
+    enum class CondCode {
+        EQ, NE,
+        LT, LE,
+        GT, GE,
+        // unsigned（如果你支持）
+        ULT, ULE,
+        UGT, UGE
+    };
     class DAGIsel : public BE::ISelBase<DAGIsel>
     {
         friend class BE::ISelBase<DAGIsel>;
@@ -34,7 +42,54 @@ namespace BE::RV64
         DAGIsel(ME::Module* ir_module, BE::Module* backend_module, BE::Targeting::BackendTarget* target)
             : BE::ISelBase<DAGIsel>(backend_module), ir_module_(ir_module), target_(target)
         {}
+        struct LastCmpInfo {
+        BE::Register lhs;
+        BE::Register rhs;
+        CondCode cond;
+        bool isFloat;
+        };
+        LastCmpInfo lastCmp_;
+        static CondCode mapIcmpCond(int64_t irCond)
+        {
+            switch (irCond) {
+            case 1:  return CondCode::EQ;   // EQ
+            case 2:  return CondCode::NE;   // NE
 
+            case 3:  return CondCode::UGT;  // UGT
+            case 4:  return CondCode::UGE;  // UGE
+            case 5:  return CondCode::ULT;  // ULT
+            case 6:  return CondCode::ULE;  // ULE
+
+            case 7:  return CondCode::GT;   // SGT
+            case 8:  return CondCode::GE;   // SGE
+            case 9:  return CondCode::LT;   // SLT
+            case 10: return CondCode::LE;   // SLE
+
+            default:
+                assert(false && "unknown IR_ICMP cond");
+            }
+        }
+        static CondCode mapFcmpCond(int64_t irCond)
+        {
+            switch(irCond) {
+                case 1:  return CondCode::EQ;   // OEQ
+                case 2:  return CondCode::GT;   // OGT
+                case 3:  return CondCode::GE;   // OGE
+                case 4:  return CondCode::LT;   // OLT
+                case 5:  return CondCode::LE;   // OLE
+                case 6:  return CondCode::NE;   // ONE
+                case 7:  return CondCode::NE;   // ORD
+                case 8:  return CondCode::EQ;   // UEQ
+                case 9:  return CondCode::UGT;  // UGT
+                case 10: return CondCode::UGE;  // UGE
+                case 11: return CondCode::ULT;  // ULT
+                case 12: return CondCode::ULE;  // ULE
+                case 13: return CondCode::NE;   // UNE
+                case 14: return CondCode::NE;   // UNO
+                default:
+                    assert(false && "unknown IR_FCMP cond");
+            }
+        }
       private:
         ME::Module*                   ir_module_;
         BE::Targeting::BackendTarget* target_;
