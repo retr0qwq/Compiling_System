@@ -22,6 +22,7 @@ namespace BE::RV64::Passes::Lowering
         ~PhiEliminationPass() = default;
 
         void runOnModule(BE::Module& module, const BE::Targeting::TargetInstrAdapter* adapter);
+        void eliminateMoveInstructions(BE::Function* func);
 
       private:
         void runOnFunction(BE::Function* func, const BE::Targeting::TargetInstrAdapter* adapter);
