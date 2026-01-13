@@ -125,6 +125,7 @@ namespace BE::RV64
         void selectFunction(ME::Function* ir_func);
 
         void collectAllocas(ME::Function* ir_func);
+        void collectCall(ME::Function* ir_func);
         void setupParameters(ME::Function* ir_func);
         void selectBlock(ME::Block* ir_block, const DAG::SelectionDAG& dag);
 

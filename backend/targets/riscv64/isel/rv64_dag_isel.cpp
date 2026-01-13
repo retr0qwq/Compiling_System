@@ -5,6 +5,7 @@
 #include <backend/dag/dag_builder.h>
 #include <backend/targets/riscv64/dag/rv64_dag_legalize.h>
 #include <backend/targets/riscv64/rv64_defs.h>
+#include <backend/targets/riscv64/rv64_reg_info.h>
 #include <middleend/module/ir_instruction.h>
 #include <middleend/module/ir_function.h>
 #include <debug.h>
@@ -347,7 +348,46 @@ namespace BE::RV64
             }
         }
     }
+    void DAGIsel::collectCall(ME::Function* ir_func)
+    {
+        int maxOutgoingBytes = 0;
 
+    for (auto& [bid, block] : ir_func->blocks)
+    {
+        for (auto* inst : block->insts)
+        {
+            if (inst->opcode != ME::Operator::CALL)
+                continue;
+
+            auto* call = static_cast<ME::CallInst*>(inst);
+
+            int intCnt   = 0;
+            int floatCnt = 0;
+
+            // 统计参数类型
+            for (auto& [argType, argOp] : call->args)
+            {
+                if (argType == ME::DataType::F32)
+                    floatCnt++;
+                else
+                    intCnt++;
+            }
+
+            // RV64 ABI：前 8 个进寄存器
+            int intOverflow   = std::max(0, intCnt   - 8);
+            int floatOverflow = std::max(0, floatCnt - 8);
+
+            int bytes = (intOverflow + floatOverflow) * 8;
+
+            maxOutgoingBytes = std::max(maxOutgoingBytes, bytes);
+        }
+    }
+
+    if (maxOutgoingBytes > 0)
+    {
+        ctx_.mfunc->frameInfo.setParamAreaSize(maxOutgoingBytes);
+    }
+    }
     void DAGIsel::setupParameters(ME::Function* ir_func)
     {
         // ============================================================================
@@ -405,7 +445,7 @@ namespace BE::RV64
         // - 至于为什么，你可以思考一下 getOperandReg 的实现
         // - getOperandReg 对于第一次使用常量的行为是什么，会将立即数加载的指令插入到什么地方？
 
-        TODO("选择 PHI 节点：提取前驱与值，生成 PhiInst");
+        // TODO("选择 PHI 节点：提取前驱与值，生成 PhiInst");
         size_t irRegId = node->getIRRegId();
         BE::DataType* dt = node->getValueType(0);
 
@@ -720,7 +760,6 @@ namespace BE::RV64
         // 与 LOAD 的相似性：
         // - 同样需要地址选择与立即数范围检查
         // - 操作数：[Chain, Value, Address]
-
         // TODO("选择 STORE：地址折叠 + 生成存储指令");
         if (node->getNumOperands() < 3) return;
 
@@ -806,14 +845,55 @@ namespace BE::RV64
         // ============================================================================
 
         // TODO("选择 ICMP：根据条件生成比较指令序列");
+        Register dst = nodeToVReg_.at(node);
         BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
         BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
 
-        // 取出 IR cond 协议值
-        int64_t irCond = node->getImmI64();
-        CondCode cc = mapIcmpCond(irCond);
-        // 记录到 isel 状态
-        lastCmp_ = { lhs, rhs, cc, false };
+        CondCode cc = mapIcmpCond(node->getImmI64());
+
+        switch (cc){
+            case CondCode::EQ:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::SUB, tmp, lhs, rhs));
+                m_block->insts.push_back(createIInst_impl(Operator::SLTIU, dst, tmp, 1, "icmp eq"));
+                break;}
+           case CondCode::NE:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::SUB, tmp, lhs, rhs));
+                m_block->insts.push_back(createIInst_impl(Operator::SLTIU, dst, tmp, 1, "icmp eq"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, dst, 1, "icmp ne"));
+                break;}
+            case CondCode::LT:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLT, dst, lhs, rhs, "icmp lt"));
+                break;}
+            case CondCode::LE:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLT, dst, rhs, lhs, "icmp le"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, dst, 1, "icmp le"));
+                break;}
+            case CondCode::GT:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLT, dst, rhs, lhs, "icmp gt"));
+                break;}
+            case CondCode::GE:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLT, dst, lhs, rhs, "icmp ge"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, dst, 1, "icmp ge"));
+                break;}
+            case CondCode::ULT:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLTU, dst, lhs, rhs, "icmp ult"));
+                break;}
+            case CondCode::ULE:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLTU, dst, rhs, lhs, "icmp ule"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, dst, 1, "icmp ule"));
+                break;}
+            case CondCode::UGT:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLTU, dst, rhs, lhs, "icmp ugt"));
+                break;}
+            case CondCode::UGE:{
+                m_block->insts.push_back(createRInst_impl(Operator::SLTU, dst, lhs, rhs, "icmp uge"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, dst, 1, "icmp uge"));
+                break;}
+            default:
+                assert(false && "unsupported icmp cond");
+        }
     }
 
     void DAGIsel::selectFCmp(const DAG::SDNode* node, BE::Block* m_block)
@@ -823,6 +903,7 @@ namespace BE::RV64
         // ============================================================================
 
         // TODO("选择 FCMP：根据条件生成浮点比较指令");
+        Register dst = nodeToVReg_.at(node);
         BE::Register lhs = getOperandReg(node->getOperand(0).getNode(), m_block);
         BE::Register rhs = getOperandReg(node->getOperand(1).getNode(), m_block);
 
@@ -830,9 +911,51 @@ namespace BE::RV64
 
         // 使用静态函数映射
         CondCode cc = mapFcmpCond(irCond);
-
-        // 保存比较信息
-        lastCmp_ = { lhs, rhs, cc, true };   // isFloat = true
+        switch (cc){
+            case CondCode::EQ:{
+                m_block->insts.push_back(createRInst_impl(Operator::FEQ_S, dst, lhs, rhs, "fcmp eq"));
+                break;}
+            case CondCode::LT:{
+                m_block->insts.push_back(createRInst_impl(Operator::FLT_S, dst, lhs, rhs, "fcmp lt"));
+                break;}
+            case CondCode::LE:{
+                m_block->insts.push_back(createRInst_impl(Operator::FLE_S, dst, lhs, rhs, "fcmp le"));
+                break;}
+            case CondCode::GT:{
+                m_block->insts.push_back(createRInst_impl(Operator::FLT_S, dst, rhs, lhs, "fcmp gt"));
+                break;}
+            case CondCode::GE:{
+                m_block->insts.push_back(createRInst_impl(Operator::FLE_S, dst, rhs, lhs, "fcmp ge"));
+                break;}
+            case CondCode::NE:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::FEQ_S, tmp, lhs, rhs, "fcmp ne"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, tmp, 1, "fcmp ne"));
+                break;}
+            case CondCode::ULT:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::FLT_S, tmp, lhs, rhs, "fcmp ult"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, tmp, 1, "fcmp ult"));
+                break;}
+            case CondCode::ULE:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::FLE_S, tmp, lhs, rhs, "fcmp ule"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, tmp, 1, "fcmp ule"));
+                break;}
+            case CondCode::UGT:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::FLT_S, tmp, rhs, lhs, "fcmp ugt"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, tmp, 1, "fcmp ugt"));
+                break;}
+            case CondCode::UGE:{
+                Register tmp = getVReg(BE::I64);
+                m_block->insts.push_back(createRInst_impl(Operator::FLE_S, tmp, rhs, lhs, "fcmp uge"));
+                m_block->insts.push_back(createIInst_impl(Operator::XORI, dst, tmp, 1, "fcmp uge"));
+                break;}
+            default:
+                assert(false && "unsupported fcmp cond");
+        }
+        
     }
 
     void DAGIsel::selectBranch(const DAG::SDNode* node, BE::Block* m_block)
@@ -848,69 +971,56 @@ namespace BE::RV64
 
         // TODO("选择分支：区分 BR/BRCOND 生成跳转指令");
         using namespace BE::DAG;
-
         ISD opc = static_cast<ISD>(node->getOpcode());
 
-        // 无条件跳转 BR
-        if(opc == ISD::BR) {
-            const DAG::SDNode* destNode = node->getOperand(1).getNode();
-            if(!destNode) return;
+        // ================================
+        // 无条件跳转：BR
+        // ================================
+        if (opc == ISD::BR) {
+            const SDNode* dest = node->getOperand(1).getNode();
+            if (!dest) return;
 
-            BE::RV64::Label labelId(static_cast<int>(destNode->getId()), false);
-
-            // JAL rd=0, label
+            RV64::Label lbl(static_cast<int>(dest->getId()), false);
             m_block->insts.push_back(
-                createJInst_impl(Operator::JAL, 0 /* rd=zero */, labelId, "uncond branch")
+                createJInst_impl(Operator::JAL, 0, lbl, "uncond branch")
             );
             return;
         }
 
-        // 条件跳转 BRCOND
-        if(opc == ISD::BRCOND) {
-            const DAG::SDNode* trueNode  = node->getOperand(2).getNode();
-            const DAG::SDNode* falseNode = node->getOperand(3).getNode();
-            if(!trueNode || !falseNode) return;
+        // ================================
+        // 条件跳转：BRCOND
+        // ================================
+        if (opc == ISD::BRCOND) {
+            const SDNode* condNode  = node->getOperand(1).getNode();
+            const SDNode* trueNode  = node->getOperand(2).getNode();
+            const SDNode* falseNode = node->getOperand(3).getNode();
+            if (!condNode || !trueNode || !falseNode) return;
 
-            uint32_t trueLabel  = trueNode->getId();
-            uint32_t falseLabel = falseNode->getId();
-            BE::RV64::Label trueLbl(static_cast<int>(trueLabel), false);
-            BE::RV64::Label falseLbl(static_cast<int>(falseLabel), false);
-            // 条件跳转到 True
-            Operator op;
-            if(lastCmp_.isFloat) {
-                // 浮点条件映射
-                switch(lastCmp_.cond) {
-                    case CondCode::EQ: op = Operator::FEQ_S; break;
-                    case CondCode::LT: op = Operator::FLT_S; break;
-                    case CondCode::LE: op = Operator::FLE_S; break;
-                    default:
-                        assert(false && "unsupported float cond for branch");
-                }
-            } else {
-                // 整数条件映射
-                switch(lastCmp_.cond) {
-                    case CondCode::EQ:  op = Operator::BEQ; break;
-                    case CondCode::NE:  op = Operator::BNE; break;
-                    case CondCode::LT:  op = Operator::BLT; break;
-                    case CondCode::LE:  op = Operator::BLE; break;
-                    case CondCode::GT:  op = Operator::BGT; break;
-                    case CondCode::GE:  op = Operator::BGE; break;
-                    case CondCode::ULT: op = Operator::BLTU; break;
-                    case CondCode::ULE: op = Operator::BLEU; break;
-                    case CondCode::UGT: op = Operator::BGTU; break;
-                    case CondCode::UGE: op = Operator::BGEU; break;
-                    default: assert(false && "unsupported int cond for branch");
-                }
-            }
+            Register condReg = getOperandReg(condNode, m_block);
 
+            RV64::Label trueLbl(static_cast<int>(trueNode->getId()), false);
+            RV64::Label falseLbl(static_cast<int>(falseNode->getId()), false);
+
+            // if (condReg != 0) goto true
             m_block->insts.push_back(
-                createBInst_impl(op, lastCmp_.lhs, lastCmp_.rhs, trueLbl, "branch cond")
-            );
-            // 无条件跳转到 False
-            m_block->insts.push_back(
-                createJInst_impl(Operator::JAL, 0 /* rd=zero */, falseLbl, "branch false")
+                createBInst_impl(
+                    Operator::BNE,
+                    condReg,
+                    0,
+                    trueLbl,
+                    "brcond true"
+                )
             );
 
+            // else goto false
+            m_block->insts.push_back(
+                createJInst_impl(
+                    Operator::JAL,
+                    0,
+                    falseLbl,
+                    "brcond false"
+                )
+            );
             return;
         }
     }
@@ -935,51 +1045,107 @@ namespace BE::RV64
         // - 返回值从 a0/fa0 搬运到目标寄存器
 
         // TODO("选择 CALL：参数传递 + 生成调用指令 + 返回值处理");
+        using namespace BE::Targeting::RV64;
+
+        // 1. 获取被调用函数名
         const DAG::SDNode* calleeNode = node->getOperand(1).getNode();
         if (!calleeNode || !calleeNode->hasSymbol()) return;
-
         const std::string& funcName = calleeNode->getSymbol();
 
-        // 2. 参数求值（从 operand[2] 开始）
-        std::vector<BE::Operand*> argOps;
+        // 2. 准备参数寄存器列表（a0-a7 / fa0-fa7）
+        std::vector<int> intRegs  = {10,11,12,13,14,15,16,17};  // a0-a7
+        std::vector<int> floatRegs= {10,11,12,13,14,15,16,17};  // fa0-fa7
+        int intRegIdx = 0;
+        int floatRegIdx = 0;
+        int stackIdx = 0; // 栈溢出参数计数
 
+        // 3. 遍历参数
         for (unsigned i = 2; i < node->getNumOperands(); ++i)
         {
             const DAG::SDNode* argNode = node->getOperand(i).getNode();
+            BE::Register srcReg = getOperandReg(argNode, m_block);
 
-            // 用你现有逻辑获取一个寄存器
-            BE::Register argReg = getOperandReg(argNode, m_block);
-            argOps.push_back(new BE::RegOperand(argReg));
+            if (srcReg.dt->dt == DataType::Type::FLOAT)
+            {
+                if (floatRegIdx < (int)floatRegs.size())
+                {
+                    // 放寄存器 fa0-fa7
+                    BE::Register phys = floatRegs[floatRegIdx++];
+                    m_block->insts.push_back(
+                        new BE::MoveInst(
+                            new BE::RegOperand(phys),
+                            new BE::RegOperand(srcReg),
+                            "call arg float"
+                        )
+                    );
+                }
+                else
+                {
+                    // 栈传参
+                    int offset = stackIdx * 8;
+                    BE::Register sp = 2; // SP
+                    m_block->insts.push_back(
+                        createSInst_impl(Operator::SD, srcReg, sp, offset, "call arg float stack")
+                    );
+                    stackIdx++;
+                    floatRegIdx++;
+                }
+            }
+            else
+            {
+                if (intRegIdx < (int)intRegs.size())
+                {
+                    // 放寄存器 a0-a7
+                    BE::Register phys = intRegs[intRegIdx++];
+                    m_block->insts.push_back(
+                        new BE::MoveInst(
+                            new BE::RegOperand(phys),
+                            new BE::RegOperand(srcReg),
+                            "call arg int"
+                        )
+                    );
+                }
+                else
+                {
+                    // 栈传参
+                    int offset = stackIdx * 8;
+                    BE::Register sp = 2; // SP
+                    m_block->insts.push_back(
+                        createSInst_impl(Operator::SD, srcReg, sp, offset, "call arg int stack")
+                    );
+                    stackIdx++;
+                    intRegIdx++;
+                }
+            }
         }
 
-        // 3. 用 MOVE 表示“实参传递”（不决定 ABI）
-        //    这里的目标寄存器可以是“调用约定虚拟寄存器”
-        for (size_t i = 0; i < argOps.size(); ++i)
-        {
-            BE::Register paramVReg = BE::getVReg(argOps[i]->dt);
-            m_block->insts.push_back(
-                new BE::MoveInst(argOps[i], new BE::RegOperand(paramVReg),
-                                "call arg " + std::to_string(i))
-            );
-        }
-
-        // 4. 生成 TARGET call 占位指令
+        // 4. 生成 CALL 占位指令
         m_block->insts.push_back(
-            new BE::PseudoInst(BE::InstKind::TARGET, "call " + funcName)
+            createCallInst_impl(
+                Operator::CALL,
+                funcName,
+                intRegIdx,   // 已用整数寄存器数量
+                floatRegIdx, // 已用浮点寄存器数量
+                "call " + funcName
+            )
         );
 
-        // 5. 处理返回值（如果有）
+        // 5. 处理返回值
         if (node->getNumValues() > 0)
         {
             BE::Register dst = nodeToVReg_.at(node);
-
-            // 约定：call 的返回值在一个新的 vreg 中
-            BE::Register callRet = BE::getVReg(dst.dt);
+            BE::Register retPhys;
+            if (dst.dt->dt == DataType::Type::FLOAT)
+                retPhys = 10;  // fa0
+            else
+                retPhys = 10;  // a0
 
             m_block->insts.push_back(
-                new BE::MoveInst(new BE::RegOperand(callRet),
-                                new BE::RegOperand(dst),
-                                "call ret")
+                new BE::MoveInst(
+                    new BE::RegOperand(dst),  // 目标虚拟寄存器
+                    new BE::RegOperand(retPhys),
+                    "call ret"
+                )
             );
         }
     }
@@ -1014,6 +1180,40 @@ namespace BE::RV64
         // 为类型转换节点生成目标相关的转换指令。
 
         // TODO("选择类型转换：生成 FCVT 或扩展指令");
+        using namespace BE::DAG;
+        auto opcode = static_cast<ISD>(node->getOpcode());
+        Register dst = nodeToVReg_.at(node);
+        Register src = getOperandReg(node->getOperand(0).getNode(), m_block);
+        switch(opcode) {
+            case ISD::ZEXT: {
+                const DAG::SDNode* srcNode = node->getOperand(0).getNode();
+                auto srcOpcode = static_cast<ISD>(srcNode->getOpcode());
+
+                if (srcOpcode == ISD::ICMP || srcOpcode == ISD::FCMP) {
+                    // 比较结果：只保留 bit0
+                    m_block->insts.push_back(
+                        createRInst(Operator::ZEXT_W, dst, src, 0)
+                    );
+                }
+                break;
+            }
+            case ISD::SITOFP: {
+                // 整数转浮点
+                m_block->insts.push_back(
+                    createRInst(Operator::FCVT_S_W, dst, src, 0)
+                );
+                break;
+            }
+            case ISD::FPTOSI: {
+                // 浮点转整数
+                m_block->insts.push_back(
+                    createRInst(Operator::FCVT_W_S, dst, src, 0)
+                );
+                break;
+            }
+            default:
+                ERROR("Unsupported cast operator: %d", node->getOpcode());
+        }
     }
 
     void DAGIsel::selectNode(const DAG::SDNode* node, BE::Block* m_block)
@@ -1127,9 +1327,9 @@ namespace BE::RV64
         m_backend_module->functions.push_back(mfunc);
         ctx_.mfunc = mfunc;
         // 3. 计算传出参数区大小
-        collectAllocas(ir_func);
+        collectCall(ir_func);
         // 4. 收集局部变量
-
+        collectAllocas(ir_func);
         // 5. 创建所有基本块对象
         for (auto& [label, ir_block] : ir_func->blocks)
         {

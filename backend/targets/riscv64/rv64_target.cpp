@@ -77,10 +77,10 @@ namespace BE::Targeting::RV64
         BE::RV64::DAGIsel isel(ir, backend, this);
         // BE::RV64::IRIsel isel(ir, backend, this);
         isel.run();
-
         runPreRAPasses(*backend, &s_adapter);
         runRAPipeline(*backend, s_regInfo);
-        runPostRAPasses(*backend);
+        if(false){
+        runPostRAPasses(*backend);}
 
         BE::RV64::CodeGen codegen(backend, *out);
         codegen.generateAssembly();

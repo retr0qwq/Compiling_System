@@ -440,18 +440,52 @@ namespace BE
             // 任务：实现零扩展 ZEXT（from -> to）
             // 提示：结果类型用 mapType(inst.to)
             // TODO("实现 ZextInst 到 ISD::ZEXT 的映射，并 setDef");
+            // 1) 获取源操作数对应的 DAG 节点
+            SDValue src = getValue(inst.src, dag, mapType(inst.from));
+
+            // 2) 推导目标类型
+            BE::DataType* dstType = mapType(inst.to);
+
+            // 3) 创建 ZEXT 节点
+            SDValue node = dag.getNode(
+                static_cast<unsigned>(ISD::ZEXT), // DAG节点类型
+                { dstType },                        // 结果类型
+                { src }                             // 输入操作数
+            );
+
+            // 4) 记录 IR 指令的结果
+            setDef(inst.dest, node);
         }
 
         void DAGBuilder::visit(ME::SI2FPInst& inst, SelectionDAG& dag)
         {
             // 任务：实现 SITOFP（有符号整型到浮点）
             // TODO("实现 SI2FP 到 ISD::SITOFP 的映射，并 setDef");
+            // 获取源操作数的 DAG 节点
+            BE::DataType* srcTy = BE::I32;
+            BE::DataType* dstTy = BE::F32;
+            SDValue srcVal = getValue(inst.src, dag, srcTy);
+            SDValue node = dag.getNode(
+                static_cast<unsigned>(ISD::SITOFP),
+                { dstTy },
+                { srcVal }
+            );
+            setDef(inst.dest, node);
         }
 
         void DAGBuilder::visit(ME::FP2SIInst& inst, SelectionDAG& dag)
         {
             // 任务：实现 FPTOSI（浮点到有符号整型）
             // TODO("实现 FP2SI 到 ISD::FPTOSI 的映射，并 setDef");
+            BE::DataType* srcTy = BE::F32;
+            BE::DataType* dstTy = BE::I32;
+            SDValue srcVal = getValue(inst.src, dag, srcTy);
+            SDValue node = dag.getNode(
+                static_cast<unsigned>(ISD::FPTOSI),
+                { dstTy },
+                { srcVal }
+            );
+            setDef(inst.dest, node);
         }
 
         void DAGBuilder::visit(ME::PhiInst& inst, SelectionDAG& dag)

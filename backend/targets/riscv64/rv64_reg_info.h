@@ -58,7 +58,27 @@ namespace BE::Targeting::RV64
         std::vector<int> floatArgRegs_;
         std::vector<int> calleeSavedIntRegs_;
         std::vector<int> calleeSavedFloatRegs_;
+/*
+      public:
+        Register getIntABIReg(int regId)
+        {
+          Register r;
+          r.rId = regId;
+          r.dt = new DataType(DataType::Type::INT, DataType::Length::B64);
+          r.isVreg = false;   // 关键
+          return r;
+        }
+        Register getFloatABIReg(int regId)
+        {
+          Register r;
+          r.rId = regId;
+          r.dt = new DataType(DataType::Type::FLOAT, DataType::Length::B64);
+          r.isVreg = false;   // 关键
+          return r;
+        }
+*/
     };
+   
 }  // namespace BE::Targeting::RV64
 
 #endif  // __BACKEND_TARGETS_RISCV64_RV64_REG_INFO_H__
