@@ -81,7 +81,7 @@ namespace BE::RV64::Passes::Lowering
                         }
                     }
 
-                    // 根据 srcOp 类型构造合适的操作数并插入 move dest <- src
+                    // 根据 srcOp 类型构造合适的操作数
                     BE::Operand* movSrc = nullptr;
                     switch (srcOp->ot)
                     {
@@ -111,14 +111,170 @@ namespace BE::RV64::Passes::Lowering
                     // 目标操作数
                     BE::Operand* movDst = new RegOperand(dst);
 
-                    pred->insts.insert(pred->insts.begin() + insertPos, BE::createMove(movDst, movSrc));
-                    // 将插入点后移，保持后续插入顺序
-                    insertPos++;
+                    // 插入 move 指令（使用实际的RISC-V指令，而不是伪指令）
+                    // Move伪指令消解：将Move指令转换为实际的RISC-V指令
+                    if (movSrc->ot == BE::Operand::Type::REG)
+                    {
+                        // 寄存器到寄存器的移动：使用 addi rd, rs, 0
+                        auto* srcReg = static_cast<RegOperand*>(movSrc);
+                        auto* dstReg = static_cast<RegOperand*>(movDst);
+                        
+                        auto* moveInst = BE::RV64::createIInst(
+                            BE::RV64::Operator::ADDI,
+                            dstReg->reg,
+                            srcReg->reg,
+                            0
+                        );
+                        pred->insts.insert(pred->insts.begin() + insertPos, moveInst);
+                    }
+                    else if (movSrc->ot == BE::Operand::Type::IMMI32)
+                    {
+                        // 立即数移动：使用 addi rd, x0, imm 或 li伪指令
+                        auto* immOp = static_cast<I32Operand*>(movSrc);
+                        auto* dstReg = static_cast<RegOperand*>(movDst);
+                        
+                        int32_t imm = immOp->val;
+                        
+                        if (imm >= -2048 && imm <= 2047)
+                        {
+                            // 小立即数：使用 addi
+                            auto* moveInst = BE::RV64::createIInst(
+                                BE::RV64::Operator::ADDI,
+                                dstReg->reg,
+                                BE::RV64::PR::x0,  // 零寄存器
+                                imm
+                            );
+                            pred->insts.insert(pred->insts.begin() + insertPos, moveInst);
+                        }
+                        else
+                        {
+                            // 大立即数：需要分解为 lui + addi
+                            // 先插入 lui 指令加载高位
+                            int32_t hi = (imm + 0x800) & ~0xFFF;
+                            int32_t lo = imm - hi;
+                            
+                            auto* luiInst = BE::RV64::createUInst(
+                                BE::RV64::Operator::LUI,
+                                dstReg->reg,
+                                hi
+                            );
+                            pred->insts.insert(pred->insts.begin() + insertPos, luiInst);
+                            insertPos++;
+                            
+                            // 再插入 addi 指令加上低位
+                            if (lo != 0)
+                            {
+                                auto* addiInst = BE::RV64::createIInst(
+                                    BE::RV64::Operator::ADDI,
+                                    dstReg->reg,
+                                    dstReg->reg,
+                                    lo
+                                );
+                                pred->insts.insert(pred->insts.begin() + insertPos, addiInst);
+                                insertPos++;
+                            }
+                        }
+                    }
+                    else if (movSrc->ot == BE::Operand::Type::IMMF32)
+                    {
+                        // 浮点立即数移动：需要特殊处理
+                        // 这里简化处理，暂时使用伪指令，实际需要转换为浮点加载指令
+                        auto* moveInst = BE::createMove(movDst, movSrc);
+                        pred->insts.insert(pred->insts.begin() + insertPos, moveInst);
+                    }
+                    
+                    // 清理临时创建的操作数对象
+                    delete movSrc;
+                    delete movDst;
                 }
 
                 // 删除 phi 指令
                 BE::MInstruction::delInst(insts[idx]);
                 insts.erase(insts.begin() + idx);
+            }
+        }
+        
+        // 额外步骤：遍历整个函数，消解其他可能存在的Move伪指令
+        eliminateMoveInstructions(func);
+    }
+    
+    void PhiEliminationPass::eliminateMoveInstructions(BE::Function* func)
+    {
+        // 遍历函数中的所有基本块
+        for (auto& [bid, block] : func->blocks)
+        {
+            auto& insts = block->insts;
+            
+            // 遍历基本块中的每条指令
+            for (size_t i = 0; i < insts.size(); ++i)
+            {
+                // 检查是否是Move指令
+                if (auto* moveInst = dynamic_cast<BE::MoveInst*>(insts[i]))
+                {
+                    // 获取源和目标操作数
+                    BE::Operand* src = moveInst->src;
+                    BE::Operand* dst = moveInst->dest;
+                    
+                    if (!src || !dst) 
+                    {
+                        ERROR("Move instruction has null source or destination");
+                        continue;
+                    }
+                    
+                    // 根据操作数类型转换为实际的RISC-V指令
+                    BE::MInstruction* newInst = nullptr;
+                    
+                    if (src->ot == BE::Operand::Type::REG && dst->ot == BE::Operand::Type::REG)
+                    {
+                        // 寄存器到寄存器的移动
+                        auto* srcReg = static_cast<BE::RegOperand*>(src);
+                        auto* dstReg = static_cast<BE::RegOperand*>(dst);
+                        
+                        // 使用 addi rd, rs, 0
+                        newInst = BE::RV64::createIInst(
+                            BE::RV64::Operator::ADDI,
+                            dstReg->reg,
+                            srcReg->reg,
+                            0
+                        );
+                    }
+                    else if (src->ot == BE::Operand::Type::IMMI32 && dst->ot == BE::Operand::Type::REG)
+                    {
+                        // 立即数到寄存器的移动
+                        auto* immOp = static_cast<BE::I32Operand*>(src);
+                        auto* dstReg = static_cast<BE::RegOperand*>(dst);
+                        
+                        int32_t imm = immOp->val;
+                        
+                        if (imm >= -2048 && imm <= 2047)
+                        {
+                            // 小立即数：addi rd, x0, imm
+                            newInst = BE::RV64::createIInst(
+                                BE::RV64::Operator::ADDI,
+                                dstReg->reg,
+                                BE::RV64::PR::x0,
+                                imm
+                            );
+                        }
+                        else
+                        {
+                            // 大立即数：需要多指令序列
+                            // 这里简化处理，创建伪指令，实际应该插入多条指令
+                            // 注意：这会改变指令列表大小，需要特殊处理
+                            // 暂时保留原Move指令
+                            continue;
+                        }
+                    }
+                    
+                    // 如果成功创建了新指令，替换原Move指令
+                    if (newInst)
+                    {
+                        // 删除原Move指令
+                        BE::MInstruction::delInst(insts[i]);
+                        // 替换为新指令
+                        insts[i] = newInst;
+                    }
+                }
             }
         }
     }

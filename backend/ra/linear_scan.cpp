@@ -106,20 +106,6 @@ namespace BE::RA
         }
         return allocatable;
     }
-    static std::vector<int> buildAllocatableFloat(const BE::Targeting::TargetRegInfo& ri)
-    {
-        std::vector<int> allocatable;
-        const auto& allFloatRegs = ri.floatRegs();  // 获取所有浮点寄存器
-        const auto& reservedRegs = ri.reservedRegs();
-        std::set<int> reservedSet(reservedRegs.begin(), reservedRegs.end());
-        // 排除保留寄存器
-        for (int reg : allFloatRegs) 
-        {
-            if (!reservedSet.count(reg))
-                allocatable.push_back(reg);
-        }
-        return allocatable;
-    }
 
     void LinearScanRA::allocateFunction(BE::Function& func, const BE::Targeting::TargetRegInfo& regInfo)
     {
@@ -317,30 +303,25 @@ namespace BE::RA
                 });
 
         // ============================================================================
-        // 线性扫描主循环
+        // 线性扫描主循环（简化版，只处理整数）
         // ============================================================================
-        // 作用：按区间起点排序；进入新区间前，先从活动集合 active 移除“已结束”的区间；
-        // 然后尝试分配空闲物理寄存器；若无可用，执行溢出策略（如“溢出结束点更远”的区间）。
-        auto allIntRegs   = buildAllocatableInt(regInfo);
-        auto allFloatRegs = buildAllocatableFloat(regInfo);
+        auto allIntRegs = buildAllocatableInt(regInfo);
 
         // 将被调用者保存寄存器放在前面，优先分配给跨调用的区间
         std::vector<int> orderedIntRegs;
-        std::vector<int> orderedFloatRegs;
-        
+
         // 首先添加被调用者保存寄存器
         const auto& calleeSavedInt = regInfo.calleeSavedIntRegs();
-        const auto& calleeSavedFloat = regInfo.calleeSavedFloatRegs();
         const auto& reservedRegs = regInfo.reservedRegs();
-        
+
         std::set<int> reservedSet(reservedRegs.begin(), reservedRegs.end());
-        
+
         for (int reg : calleeSavedInt) {
             if (!reservedSet.count(reg)) {
                 orderedIntRegs.push_back(reg);
             }
         }
-        
+
         // 然后添加其他可分配寄存器
         for (int reg : allIntRegs) {
             if (!reservedSet.count(reg) && 
@@ -348,33 +329,19 @@ namespace BE::RA
                 orderedIntRegs.push_back(reg);
             }
         }
-        
-        // 浮点寄存器同理
-        for (int reg : calleeSavedFloat) {
-            if (!reservedSet.count(reg)) {
-                orderedFloatRegs.push_back(reg);
-            }
-        }
-        
-        for (int reg : allFloatRegs) {
-            if (!reservedSet.count(reg) && 
-                std::find(orderedFloatRegs.begin(), orderedFloatRegs.end(), reg) == orderedFloatRegs.end()) {
-                orderedFloatRegs.push_back(reg);
-            }
-        }
-        
+
         // 活动集合，按结束时间排序
         std::set<Interval*, bool(*)(Interval*, Interval*)> active(
             [](Interval* a, Interval* b) { return a->segs.back().end < b->segs.back().end; }
         );
-        
+
         // 已分配的物理寄存器集合
         std::set<int> usedPhysRegs;
-        
+
         // 存储分配结果
         std::map<BE::Register, int> assignedPhys;
         std::map<BE::Register, int> spillFrameIndex;
-        
+
         // 为每个Interval分配寄存器
         for (auto* interval : intervals) {
             // 从活动集合中移除已结束的Interval
@@ -388,12 +355,7 @@ namespace BE::RA
             
             // 尝试分配物理寄存器
             bool allocated = false;
-            const std::vector<int>* allocatable = nullptr;
-            
-            // 判断是整数还是浮点寄存器
-            // 注意：这里需要根据虚拟寄存器的类型来判断，假设可以通过某种方式判断
-            // 这里简化处理，假设所有虚拟寄存器都是整数类型
-            allocatable = &orderedIntRegs;
+            const std::vector<int>* allocatable = &orderedIntRegs;  // 只使用整数寄存器列表
             
             if (allocatable) {
                 // 对于跨调用的区间，优先尝试被调用者保存寄存器
@@ -498,6 +460,7 @@ namespace BE::RA
                 }
             }
         }
+
         // ============================================================================
         // 重写 MIR（插入 reload/spill，替换 use/def）
         // ============================================================================
@@ -520,18 +483,20 @@ namespace BE::RA
                 BE::Targeting::g_adapter->enumDefs(inst, defs);
                 
                 // 处理use寄存器
+                std::set<BE::Register> processedUses;  // 避免重复处理同一寄存器
                 for (BE::Register vreg : uses) {
+                    if (processedUses.count(vreg)) continue;
+                    processedUses.insert(vreg);
+                    
                     if (assignedPhys.count(vreg)) {
-                        // 已分配物理寄存器，直接替换
                         BE::Targeting::g_adapter->replaceUse(inst, vreg, assignedPhys[vreg]);
                     } else if (spillFrameIndex.count(vreg)) {
                         // 需要溢出，插入reload指令并使用临时物理寄存器
                         int spillSlot = spillFrameIndex[vreg];
                         
-                        // 选择临时物理寄存器
+                        // 选择临时物理寄存器（跳过被调用者保存寄存器）
                         int tempReg = -1;
                         for (int reg : orderedIntRegs) {
-                            // 跳过被调用者保存寄存器
                             bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
                             if (!isCalleeSaved) {
                                 tempReg = reg;
@@ -544,28 +509,44 @@ namespace BE::RA
                         }
                         
                         if (tempReg != -1) {
-                            // 在当前指令前插入reload指令
+
                             BE::Targeting::g_adapter->insertReloadBefore(block, it, tempReg, spillSlot);
-                            
-                            // 替换use寄存器
+
+                            BE::Targeting::g_adapter->replaceUse(inst, vreg, tempReg);
+                        }
+                    } else {
+                        // 虚拟寄存器既没有分配物理寄存器，也没有溢出
+                        
+                        int tempReg = -1;
+                        for (int reg : orderedIntRegs) {
+                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                            if (!isCalleeSaved) {
+                                tempReg = reg;
+                                break;
+                            }
+                        }
+                        
+                        if (tempReg != -1) {
                             BE::Targeting::g_adapter->replaceUse(inst, vreg, tempReg);
                         }
                     }
                 }
                 
                 // 处理def寄存器
+                std::set<BE::Register> processedDefs;  // 避免重复处理同一寄存器
                 for (BE::Register vreg : defs) {
+                    if (processedDefs.count(vreg)) continue;
+                    processedDefs.insert(vreg);
+                    
                     if (assignedPhys.count(vreg)) {
-                        // 已分配物理寄存器，直接替换
                         BE::Targeting::g_adapter->replaceDef(inst, vreg, assignedPhys[vreg]);
                     } else if (spillFrameIndex.count(vreg)) {
                         // 需要溢出，插入spill指令并使用临时物理寄存器
                         int spillSlot = spillFrameIndex[vreg];
                         
-                        // 选择临时物理寄存器
+                        // 选择临时物理寄存器（跳过被调用者保存寄存器）
                         int tempReg = -1;
                         for (int reg : orderedIntRegs) {
-                            // 跳过被调用者保存寄存器
                             bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
                             if (!isCalleeSaved) {
                                 tempReg = reg;
@@ -578,17 +559,31 @@ namespace BE::RA
                         }
                         
                         if (tempReg != -1) {
-                            // 替换def寄存器为临时物理寄存器
+
                             BE::Targeting::g_adapter->replaceDef(inst, vreg, tempReg);
-                            
-                            // 在当前指令后插入spill指令
+
                             BE::Targeting::g_adapter->insertSpillAfter(block, it, tempReg, spillSlot);
+                        }
+                    } else {
+                        // 虚拟寄存器既没有分配物理寄存器，也没有溢出
+                        
+                        int tempReg = -1;
+                        for (int reg : orderedIntRegs) {
+                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                            if (!isCalleeSaved) {
+                                tempReg = reg;
+                                break;
+                            }
+                        }
+                        
+                        if (tempReg != -1) {
+                            BE::Targeting::g_adapter->replaceDef(inst, vreg, tempReg);
                         }
                     }
                 }
             }
         }
-        
+
         // 清理Interval内存
         for (auto& [reg, interval] : intervalsMap) {
             delete interval;
