@@ -79,8 +79,8 @@ namespace BE::Targeting::RV64
         isel.run();
         runPreRAPasses(*backend, &s_adapter);
         runRAPipeline(*backend, s_regInfo);
-        if(false){
-        runPostRAPasses(*backend);}
+        runPostRAPasses(*backend);
+        if(false){}
 
         BE::RV64::CodeGen codegen(backend, *out);
         codegen.generateAssembly();

@@ -247,28 +247,30 @@ namespace BE::RA
                 BE::Targeting::g_adapter->enumUses(inst, uses);
                 BE::Targeting::g_adapter->enumDefs(inst, defs);
                 
-                // 在指令处：先添加DEF，再添加USE（因为从后向前）
+                // 1. DEF 在 pos 结束旧值
                 for (auto& reg : defs) {
                     if (intervalsMap.count(reg)) {
                         intervalsMap[reg]->addSegment(pos, pos + 1);
                     }
-                }
-                
-                // 更新活跃集合
-                for (auto& reg : defs) {
                     live.erase(reg);
                 }
-                
-                // 为当前活跃的寄存器添加区间段
+
+                // 2. USE 在 pos 生效
+                for (auto& reg : uses) {
+                    live.insert(reg);
+                }
+
+                // 3. 当前 pos，所有 live 都覆盖
                 for (auto& reg : live) {
                     if (intervalsMap.count(reg)) {
                         intervalsMap[reg]->addSegment(pos, pos + 1);
                     }
                 }
-                
-                // 添加USE到活跃集合
-                for (auto& reg : uses) {
-                    live.insert(reg);
+            }
+            // 处理基本块入口的 IN 集合
+            for (auto& reg : IN[block]) {
+                if (intervalsMap.count(reg)) {
+                    intervalsMap[reg]->addSegment(blockStart, blockStart + 1);
                 }
             }
         }
@@ -302,9 +304,7 @@ namespace BE::RA
                     return a->segs[0].start < b->segs[0].start;
                 });
 
-        // ============================================================================
-        // 线性扫描主循环（简化版，只处理整数）
-        // ============================================================================
+        // 线性扫描主循环（只处理整数）
         auto allIntRegs = buildAllocatableInt(regInfo);
 
         // 将被调用者保存寄存器放在前面，优先分配给跨调用的区间
@@ -332,7 +332,11 @@ namespace BE::RA
 
         // 活动集合，按结束时间排序
         std::set<Interval*, bool(*)(Interval*, Interval*)> active(
-            [](Interval* a, Interval* b) { return a->segs.back().end < b->segs.back().end; }
+            [](Interval* a, Interval* b) { 
+                if (a->segs.back().end != b->segs.back().end)
+                    return a->segs.back().end < b->segs.back().end;
+                return a->vreg.rId < b->vreg.rId;
+            }
         );
 
         // 已分配的物理寄存器集合
@@ -422,15 +426,27 @@ namespace BE::RA
                     auto* spillCandidate = *active.rbegin(); // 结束时间最晚的
                     if (spillCandidate->segs.back().end > interval->segs.back().end) {
                         // 溢出活动集合中的Interval
+                        int freedReg = spillCandidate->physReg;
                         spillCandidate->spilled = true;
                         spillCandidate->physReg = -1;
                         assignedPhys.erase(spillCandidate->vreg);
-                        usedPhysRegs.erase(spillCandidate->physReg);
+                        usedPhysRegs.erase(freedReg);
                         active.erase(spillCandidate);
+
                         
                         // 重新尝试分配当前Interval
                         for (int physReg : *allocatable) {
-                            if (!usedPhysRegs.count(physReg)) {
+                            if (usedPhysRegs.count(physReg)) continue;
+
+                            bool conflict = false;
+                            for (auto* activeInt : active) {
+                                if (activeInt->physReg == physReg) {
+                                    conflict = true;
+                                    break;
+                                }
+                            }
+
+                            if (!conflict) {
                                 interval->physReg = physReg;
                                 assignedPhys[interval->vreg] = physReg;
                                 usedPhysRegs.insert(physReg);
@@ -439,7 +455,7 @@ namespace BE::RA
                                 break;
                             }
                         }
-                        
+
                         // 为被溢出的Interval分配溢出槽
                         if (spillCandidate->spillSlot == -1) {
                             // 分配新的溢出槽
@@ -478,10 +494,20 @@ namespace BE::RA
                 auto* inst = *it;
                 
                 // 获取指令的use和def寄存器
+                std::map<BE::Register, int> instTempMap;
                 std::vector<BE::Register> uses, defs;
                 BE::Targeting::g_adapter->enumUses(inst, uses);
                 BE::Targeting::g_adapter->enumDefs(inst, defs);
-                
+                std::set<int> forbiddenRegs; 
+
+                for (auto v : uses) {
+                    if (assignedPhys.count(v))
+                        forbiddenRegs.insert(assignedPhys[v]);
+                }
+                for (auto v : defs) {
+                    if (assignedPhys.count(v))
+                        forbiddenRegs.insert(assignedPhys[v]);
+                }
                 // 处理use寄存器
                 std::set<BE::Register> processedUses;  // 避免重复处理同一寄存器
                 for (BE::Register vreg : uses) {
@@ -495,23 +521,37 @@ namespace BE::RA
                         int spillSlot = spillFrameIndex[vreg];
                         
                         // 选择临时物理寄存器（跳过被调用者保存寄存器）
-                        int tempReg = -1;
-                        for (int reg : orderedIntRegs) {
-                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
-                            if (!isCalleeSaved) {
+                        int tempReg;
+                        if (instTempMap.count(vreg)) {
+                            tempReg = instTempMap[vreg];
+                        } else {
+                            tempReg = -1;
+                            for (int reg : orderedIntRegs) {
+                                bool isCalleeSaved =
+                                    std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                                if (isCalleeSaved) continue;
+                                if (forbiddenRegs.count(reg)) continue;
                                 tempReg = reg;
                                 break;
                             }
+
+                            if (tempReg == -1 && !orderedIntRegs.empty()) {
+                                int reg = orderedIntRegs[0];
+                                if (!forbiddenRegs.count(reg))
+                                    tempReg = reg;
+                            }
+
+                            if (tempReg == -1) continue;
+
+                            instTempMap[vreg] = tempReg;
+                            forbiddenRegs.insert(tempReg);
                         }
-                        
-                        if (tempReg == -1 && !orderedIntRegs.empty()) {
-                            tempReg = orderedIntRegs[0];
-                        }
+
                         
                         if (tempReg != -1) {
-
+                            auto nextIt = std::next(it);
                             BE::Targeting::g_adapter->insertReloadBefore(block, it, tempReg, spillSlot);
-
+                            it = std::prev(nextIt);
                             BE::Targeting::g_adapter->replaceUse(inst, vreg, tempReg);
                         }
                     } else {
@@ -545,17 +585,30 @@ namespace BE::RA
                         int spillSlot = spillFrameIndex[vreg];
                         
                         // 选择临时物理寄存器（跳过被调用者保存寄存器）
-                        int tempReg = -1;
-                        for (int reg : orderedIntRegs) {
-                            bool isCalleeSaved = std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
-                            if (!isCalleeSaved) {
+                        int tempReg;
+                        if (instTempMap.count(vreg)) {
+                            tempReg = instTempMap[vreg];
+                        } else {
+                            tempReg = -1;
+                            for (int reg : orderedIntRegs) {
+                                bool isCalleeSaved =
+                                    std::find(calleeSavedInt.begin(), calleeSavedInt.end(), reg) != calleeSavedInt.end();
+                                if (isCalleeSaved) continue;
+                                if (forbiddenRegs.count(reg)) continue;
                                 tempReg = reg;
                                 break;
                             }
-                        }
-                        
-                        if (tempReg == -1 && !orderedIntRegs.empty()) {
-                            tempReg = orderedIntRegs[0];
+
+                            if (tempReg == -1 && !orderedIntRegs.empty()) {
+                                int reg = orderedIntRegs[0];
+                                if (!forbiddenRegs.count(reg))
+                                    tempReg = reg;
+                            }
+
+                            if (tempReg == -1) continue;
+
+                            instTempMap[vreg] = tempReg;
+                            forbiddenRegs.insert(tempReg);
                         }
                         
                         if (tempReg != -1) {
